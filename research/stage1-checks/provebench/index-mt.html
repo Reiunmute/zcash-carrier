@@ -1,0 +1,10 @@
+<!doctype html><html><body><pre id="o">running</pre>
+<script type="module">
+import init, { bench, initThreadPool } from './provebench.js';
+await init();
+const r = { isolated: crossOriginIsolated, cores: navigator.hardwareConcurrency };
+await initThreadPool(navigator.hardwareConcurrency);
+r.a2 = JSON.parse(bench(2));
+r.a4 = JSON.parse(bench(4));
+window.__r = r; document.getElementById('o').textContent = JSON.stringify(r);
+</script></body></html>

@@ -1,0 +1,32 @@
+<!doctype html>
+<html><body>
+<pre id="out">running</pre>
+<script type="module">
+// Drives Noir Wallet's own zcash worker (extracted from the Chrome extension, v1.0.37)
+// to test whether zcash_signMessage output is deterministic for a fixed seed + message.
+const out = document.getElementById('out');
+const w = new Worker('/assets/zcash.worker-BBmcadWW.js', { type: 'module' });
+let seq = 0; const pending = new Map();
+w.addEventListener('message', e => {
+  const d = e.data;
+  if (d && d.id !== undefined && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); }
+});
+const call = (method, payload) => new Promise(res => { const id = ++seq; pending.set(id, res); w.postMessage({ id, method, payload }); });
+// Public BIP-39 test vector (no funds): 23 x "abandon" + "art"
+const seed = Array(23).fill('abandon').concat('art').join(' ');
+const results = {};
+try {
+  results.init = await call('init', { walletId: 'w1', network: 'testnet', lightwalletdUrl: 'https://testnet.zec.rocks:443', dbBytes: null });
+  const msg = 'carrier.market wants to derive your collectibles key. Origin: http://127.0.0.1. Version 1.';
+  const sign = (m, idx) => call('message.sign', { walletId: 'w1', accountIndex: 0, seedPhrase: seed, message: m, addressIndex: idx });
+  results.derived1 = await sign(msg, 2147483647);
+  results.derived2 = await sign(msg, 2147483647);
+  results.derived3 = await sign(msg, 2147483647);
+  results.current1 = await sign(msg, undefined);
+  results.current2 = await sign(msg, undefined);
+  results.otherMsg = await sign(msg + ' x', 2147483647);
+} catch (e) { results.error = String(e); }
+window.__results = results;
+out.textContent = JSON.stringify(results, null, 1);
+</script>
+</body></html>
