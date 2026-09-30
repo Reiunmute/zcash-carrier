@@ -36,7 +36,7 @@ Naming: these are not NFTs in the ERC-721 sense. The working name is **Carrier**
 - Noteprint
 - Veil
 
-Ryot also suggested **Vizor**, but that is the name of an existing Zcash wallet by Chainapsis, the Keplr team. Ryot has not decided. Do not rename anything until he does.
+Ryot has not decided. Do not rename anything until he does. (Vizor came up in the discussion as a wallet, by Chainapsis. It is an existing product name, not a naming candidate.)
 
 ## 2. Status matrix
 
