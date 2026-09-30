@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Gate for this repo. Builds, re-verifies the 2026-09-29 testnet evidence from public chain data,
+# and rebuilds both artworks from on-chain memo bytes. Needs network (testnet lightwalletd).
+# R3 (holder) checks run only when state/seed.hex exists (Ryot's Mac). Elsewhere they are skipped.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+E=evidence/testnet-2026-09-29
+MINT3=78a9a662f825d576abdf14e4d47fe6244a68ecd0a54135fca76eca32001cc3fb
+fail() { echo "VERIFY.SH FAIL: $*" >&2; exit 1; }
+want() { grep -qF -- "$2" <<<"$1" || fail "expected output missing: $2"; }
+
+mkdir -p out
+echo "== build"
+cargo build --release --quiet
+
+HOLDER=""
+if [ -f state/seed.hex ]; then
+  # acct3 at OFF=10 is the buyer vault of the 2026-09-29 run.
+  HOLDER=$(STATE=state OFF=10 ./target/release/carrier keys | awk '$1=="acct3"{print $3}')
+  [ -n "$HOLDER" ] || fail "could not derive buyer vault FVK from state/"
+else
+  echo "   state/seed.hex not found: R3 holder checks skipped"
+fi
+
+echo "== genuine package (item #1) + stray mint #3"
+out=$(env ${HOLDER:+HOLDER_FVK=$HOLDER} ./target/release/verify "$E/collection.json" 4416690 "$E/package_item1.json" "$MINT3") \
+  || { echo "$out"; fail "genuine package rejected"; }
+echo "$out"
+want "$out" "R1 issuance set: 2 item(s), finalized=true"
+want "$out" "R1 REJECT claimed item #3"
+want "$out" "R2 hop 0: spent in 45056894d3e1"
+# unspent=true only while the buyer still holds item #1. If a later test moves it, only "yes" is required.
+[ -z "$HOLDER" ] || want "$out" "R3 holder opens current carrier: yes"
+
+echo "== forged package (item #2)"
+set +e
+out=$(env ${HOLDER:+HOLDER_FVK=$HOLDER} ./target/release/verify "$E/collection.json" 4416690 "$E/package_item2_forged.json")
+code=$?
+set -e
+echo "$out"
+want "$out" "current carrier cmx 53c2a3eb7677"
+if [ -n "$HOLDER" ]; then
+  [ "$code" -eq 2 ] || fail "forged package was not rejected (exit $code)"
+  # When OPEN_ISSUES #7 lands, the failure line may change (for example to a "burned" verdict). Update this check then.
+  want "$out" "VERIFY FAIL"
+fi
+
+echo "== artwork rebuilt from chain bytes"
+art=$(python3 scripts/render_from_chain.py 1 2)
+echo "$art"
+[ "$(grep -c 'identical_to_source=True' <<<"$art")" -eq 2 ] || fail "on-chain artwork differs from source"
+
+echo "VERIFY.SH OK"
