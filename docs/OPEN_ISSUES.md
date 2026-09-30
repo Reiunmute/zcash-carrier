@@ -41,3 +41,7 @@ Mined heights come from one lightwalletd operator (`testnet.zec.rocks`). A secon
 ## 6. Verifier cosmetics
 
 When the issuer OVK and IVK both open the same attack-mint output, `attack-mint` rejection prints twice.
+
+## 7. Successor validity is not yet checked (found 2026-09-29)
+
+In the forge test, the true successor of item #2's carrier was the funding wallet's change note (value > 0, empty memo). That note was later spent in the attack-mint tx without any binding. R2 currently accepts any output in the same Action as the successor. Rule to add: a successor is valid only if `value == 0` and its memo is `HOP` with the same `coll` and item number. Otherwise the item is treated as **burned**, and later hops are ignored. The verifier needs the successor note opened, so the buyer checks its own received note. A third party can check this only with the next vault key.
