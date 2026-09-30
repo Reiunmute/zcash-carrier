@@ -1,5 +1,6 @@
 /target
 /out
+/.local
 # Local keys and working state. Public testnet evidence is copied into evidence/.
 /state
 *.seed
