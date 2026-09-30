@@ -1,0 +1,7 @@
+/target
+/out
+# Local keys and working state. Public testnet evidence is copied into evidence/.
+/state
+*.seed
+seed.hex
+.DS_Store

@@ -1,0 +1,15 @@
+{
+  "item": 2,
+  "label": "forged",
+  "hops": [
+    {
+      "note": {
+        "recipient": "37d89220287b93b9a19b98765a3bd62207601ab191cc0246a59214ec9011dd3259cfae9295bbd77b2f7628",
+        "value": 0,
+        "rho": "a44c071a45a176a6a6281fec463a76895e1b96647603c9a5f526e4cc36d0233b",
+        "rseed": "9bee30e25c2896b28e9652f3920060492a9293005890cbeffae8842fc25835dc"
+      },
+      "vault_fvk": "eba56b505b26c2a6b9c38e8af5e363bb76b993fc112722c2fba6c0b4743d29204f81c7cb9052fef0a1449c3bc24cf4f0faa2e7b688227181ad4067c20fe1b008cb1f26e6d6d05e947a637d6dadc17d1b3e7e13fc87bf3aba2ad438516bdac60a"
+    }
+  ]
+}

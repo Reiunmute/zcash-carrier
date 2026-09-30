@@ -1,0 +1,15 @@
+{
+  "item": 1,
+  "label": "genuine",
+  "hops": [
+    {
+      "note": {
+        "recipient": "4777939a74d169f74603450e9c2ccb044c56ddd9f1decf6383ae932aadfa2fdac18e654d660e64c6aea714",
+        "value": 0,
+        "rho": "ffbdd98b325f1137880a0c2ee31f10e803502e0ea1dd4d9436b661bc3357d73d",
+        "rseed": "15f2c8450e0fa0343e7460acbc38111c7e4829bd9c1c3815299890494f615181"
+      },
+      "vault_fvk": "216f7a08bcd6d02ff0df23c88cf35b146fc20b530a576e5979318f600a38e436bbdebb39b3cfb079b41c1045fddffebcacbd8a413a3748cde2ae4fc5df993b02fa3af2861c645894c24843e08b0858ba23aa24a4b8df13c07da57b201b417821"
+    }
+  ]
+}
