@@ -1,0 +1,26 @@
+$ HOLDER_FVK=<acct6 fvk> verify evidence/testnet-2026-09-29/collection.json 4416690 evidence/testnet-2026-09-30/package_item1_sale.json
+== collection c7fe2aeadb5a6200
+R1 issuance set: 2 item(s), finalized=true
+   #1 cmx 97bfffed0864.. art 386B in 82562648ae64..
+   #2 cmx 81154f6b9c1a.. art 386B in b193c439841d..
+== package item #1 (genuine)
+R2 hop 0: spent in 45056894d3e1..@4416737, successor cmx b36afb0725fe.. (same action)
+R2 hop 0: successor valid (HOP, value 0)
+R2 hop 1: spent in 6bdeb823ff65..@4425592, successor cmx 5cb2cdaab67c.. (same action)
+== current carrier cmx 5cb2cdaab67c..
+R2 hop 1: successor valid (HOP, value 0)
+R3 holder opens current carrier: yes, unspent=true
+exit 0
+
+$ HOLDER_FVK=<acct3 fvk, seller> verify ... package_item1_sale.json
+== collection c7fe2aeadb5a6200
+R1 issuance set: 2 item(s), finalized=true
+   #1 cmx 97bfffed0864.. art 386B in 82562648ae64..
+   #2 cmx 81154f6b9c1a.. art 386B in b193c439841d..
+== package item #1 (genuine)
+R2 hop 0: spent in 45056894d3e1..@4416737, successor cmx b36afb0725fe.. (same action)
+R2 hop 0: successor valid (HOP, value 0)
+R2 hop 1: spent in 6bdeb823ff65..@4425592, successor cmx 5cb2cdaab67c.. (same action)
+== current carrier cmx 5cb2cdaab67c..
+VERIFY FAIL: holder cannot open current carrier
+exit 2

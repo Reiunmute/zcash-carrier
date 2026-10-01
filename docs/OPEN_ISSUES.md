@@ -26,6 +26,8 @@ Right now payment and carrier transfer are separate txs. The buyer trusts the se
 
 Both parties sign the same tx.
 
+> Status: proven on testnet 2026-09-30 with the CLI (`carrier sale-*`, pczt 0.9.3). Tx `6bdeb823ff65…` (height 4425592) has the carrier pair in one Action and the payment to the seller. The buyer alone cannot extract it. The seller refuses a tampered amount and an expired PCZT. Evidence: `evidence/testnet-2026-09-30/`. The browser version is still open (HANDOFF tasks 3 and 5).
+
 ## 4. Wallet UX
 
 Ordinary wallets (Zodl, etc.) will show a zero-value note at best. They may also merge it or shuffle it into an unbound Action, which breaks provenance. A dedicated viewer/wallet page is needed. It would:

@@ -48,7 +48,7 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | Artwork on chain | byte-identical rebuild | `scripts/render_from_chain.py` |
 | Verifier successor-validity rule | done 2026-09-30 (OPEN_ISSUES #7 closed) | `verify.sh` |
 | FINAL hard seal (unspendable address) | not done | OPEN_ISSUES #2 |
-| Atomic sale via PCZT | designed, **not tested** | `docs/marketplace/SPEC.md` section 3 |
+| Atomic sale via PCZT | proven on testnet 2026-09-30 (CLI, local key sets) | `evidence/testnet-2026-09-30/`, `verify.sh` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
 | Marketplace SPEC | draft 1, **awaiting Ryot's approval** | `docs/marketplace/SPEC.md` |
 | Web app | not started | none |
@@ -93,11 +93,13 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
   | acct0 | funding | index 0 |
   | acct1 | issuer | 1+OFF |
   | acct2 | vault of item #1 before the sale | 2+OFF |
-  | acct3 | buyer vault (holds item #1 now) | 3+OFF |
+  | acct3 | buyer vault in the 2026-09-29 transfer, seller in the 2026-09-30 sale | 3+OFF |
   | acct4 | vault of item #2 | 4+OFF |
+  | acct5 | seller pay address in the sale | 5+OFF |
+  | acct6 | buyer's new vault (holds item #1 now) | 6+OFF |
 
   `carrier keys` prints the FVKs. FVKs are fine to show. Never print spending keys.
-- **Funds:** faucet 10,000,000 zats. Computed fees are 90,000 (7 txs, `fee(n) = 5000 * max(n, 2)`). acct0 should hold about 9,910,000 zats in the change note of the attack-mint tx `78a9a662…`. This is computed from code, not queried. Re-check with a scan before relying on it.
+- **Funds:** faucet 10,000,000 zats. 2026-09-30, checked against nullifiers up to height 4425656: acct0 holds 9,885,000 zats in action 1 of the sale tx `6bdeb823…`, and acct5 holds the 10,000 zat sale payment. `carrier sale-buy` defaults to the `attack_mint.json` change, which is now spent. Pass `FUND_TX=6bdeb823ff6556dce7ef8c254c8ceaa257913cc820c43da271c52dabdc98ba5b` for the next sale.
 - **Faucets:**
   - `scripts/claim_jino.py <addr>` (jinolabs, sha256 PoW, 0.1 TAZ).
   - The Valar faucet has a global daily cap and returned 429.
@@ -146,6 +148,8 @@ Exit: one mined testnet tx containing both legs, the carrier bound in the same A
 - an expired PCZT is refused
 
 Record everything under `evidence/testnet-<date>/`.
+
+> Status: done 2026-09-30. `carrier sale-list | sale-buy | sale-accept`. Tx `6bdeb823ff65…` mined at 4425592: carrier pair in action 2, 10,000 zats to acct5. The verifier shows acct6 as holder. All three negative checks pass under `DRY=1`. See `evidence/testnet-2026-09-30/README.md`. Follow-up: redact the buyer change output's plaintext fields before the PCZT goes to the seller.
 
 ### Task 3. Browser network: streaming and Ironwood compact data
 
