@@ -380,13 +380,18 @@ async fn run() -> Result<()> {
             save("attack_mint.json", &serde_json::json!({ "txid": txid }))?;
             println!("ATTACK-MINT {txid}");
         }
+        // Two-party atomic sale via PCZT (docs/marketplace/SPEC.md section 3). See sale_* below.
+        "sale-list" => sale_list(&mut c).await?,
+        "sale-buy" => sale_buy(&mut c).await?,
+        "sale-accept" => sale_accept(&mut c, dry).await?,
         "keys" => {
             // Public: issuer fvk (collection audit). Private to holders: vault fvks in packages.
-            for n in 0..5 {
+            // acct5 (seller pay) and acct6 (buyer's new vault) are the sale roles.
+            for n in 0..7 {
                 println!("acct{n} fvk {}", fvk_hex(&acct(n)?.fvk));
             }
         }
-        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | keys"),
+        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | sale-list | sale-buy | sale-accept | keys"),
     }
     Ok(())
 }
@@ -409,6 +414,242 @@ async fn find_change(c: &mut Client, txid: &str, fvk: &FullViewingKey) -> Result
         .find(|f| f.note.value().inner() > 0)
         .map(|f| (f, h))
         .ok_or_else(|| anyhow!("no change output in {txid}"))
+}
+
+// ---------- two-party atomic sale via PCZT (marketplace SPEC section 3) ----------
+// Roles (shifted by OFF like every role except funding):
+//   seller = acct3 (vault holding item #1) + acct5 (seller pay address)
+//   buyer  = acct0 (funding) + acct6 (buyer's new vault)
+// Each subcommand derives only the keys of its own role. The PCZT file is the only thing that
+// crosses from buyer to seller, besides the public listing.
+
+/// Public listing. The carrier note and vault FVK are already disclosed by provenance.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Listing {
+    coll: String,
+    item: u32,
+    /// hop number of the carrier being sold; the successor gets hop + 1
+    hop: u32,
+    price: u64,
+    /// raw 43-byte Orchard-protocol address, hex
+    seller_pay_addr: String,
+    seller_pay_ua: String,
+    /// listing expiry height
+    expiry: u64,
+    carrier: Held,
+    vault_fvk: String,
+    /// provenance up to (not including) the carrier being sold
+    package: Package,
+}
+
+fn sale_pczt_path() -> PathBuf {
+    dir().join(std::env::var("SALE_PCZT").unwrap_or_else(|_| "sale.pczt".into()))
+}
+
+fn env_u64(k: &str, default: u64) -> Result<u64> {
+    std::env::var(k).map(|v| v.parse::<u64>().with_context(|| k.to_string())).unwrap_or(Ok(default))
+}
+
+/// Trial-decrypts every action of an Ironwood bundle (any authorization state) with `fvk`.
+fn decrypt_actions<T: orchard::bundle::Authorization>(b: &orchard::Bundle<T, zcash_protocol::value::ZatBalance>, fvk: &FullViewingKey) -> Vec<(usize, Note)> {
+    let pivk = orchard::keys::PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
+    b.actions()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, a)| {
+            let d = orchard::note_encryption::IronwoodDomain::for_action(a);
+            zcash_note_encryption::try_note_decryption(&d, &pivk, a).map(|(n, _, _)| (i, n))
+        })
+        .collect()
+}
+
+/// Seller: publish item #1 (currently held by vault acct3) for `PRICE` zats, payable to acct5.
+async fn sale_list(c: &mut Client) -> Result<()> {
+    let col: Collection = load("collection.json")?;
+    let tr: serde_json::Value = load("transfer.json")?;
+    let pkg: Package = load("package_item1.json")?;
+    let (a3, a5) = (acct(3)?, acct(5)?);
+    let (cur, h) = find_output(c, tr["txid"].as_str().unwrap(), &a3.fvk, Some(K_HOP)).await?;
+    let m = decode_memo(&cur.memo).ok_or_else(|| anyhow!("carrier memo"))?;
+    let price = env_u64("PRICE", 10_000)?;
+    let expiry = tip(c).await? + env_u64("LISTING_TTL", 1_000)?;
+    let pay = addr(&a5);
+    let l = Listing {
+        coll: col.coll.clone(),
+        item: m.num,
+        hop: m.hop,
+        price,
+        seller_pay_addr: hex::encode(pay.to_raw_address_bytes()),
+        seller_pay_ua: ua(&pay),
+        expiry,
+        carrier: Held { note: note_to_json(&cur.note), cmx: hex::encode(cur.cmx), height: h, txid: tr["txid"].as_str().unwrap().into() },
+        vault_fvk: fvk_hex(&a3.fvk),
+        package: pkg,
+    };
+    save("listing.json", &l)?;
+    println!("LISTED item #{} hop {} price {price} zats expiry {expiry} carrier cmx {}..", l.item, l.hop, &l.carrier.cmx[..12]);
+    Ok(())
+}
+
+/// Buyer: build the joint tx as a PCZT (carrier pair bound in one Action), prove, sign only the
+/// buyer's funding spend, redact the buyer's spend FVK and witness, and write the PCZT.
+/// Test knobs: TAMPER_PRICE=<zats> pays a different amount; EXPIRED=1 builds an already expired PCZT.
+async fn sale_buy(c: &mut Client) -> Result<()> {
+    use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, prover::Prover, redactor::Redactor, signer::Signer, tx_extractor::TransactionExtractor};
+    let l: Listing = load("listing.json")?;
+    let tip_h = tip(c).await?;
+    if tip_h >= l.expiry {
+        bail!("listing expired at {} (tip {tip_h})", l.expiry);
+    }
+    let (a0, a6) = (acct(0)?, acct(6)?);
+    let vault = fvk_from_hex(&l.vault_fvk)?;
+    let carrier = note_from_json(&l.carrier.note)?;
+    let ccmx = arr32(&l.carrier.cmx)?;
+    if cmx_of(&carrier) != ccmx {
+        bail!("listing carrier note does not match its cmx");
+    }
+    let fund_tx = match std::env::var("FUND_TX") {
+        Ok(t) => t,
+        Err(_) => load::<serde_json::Value>("attack_mint.json")?["txid"].as_str().unwrap().to_string(),
+    };
+    let (fund, fh) = find_change(c, &fund_tx, &a0.fvk).await?;
+    let pay_raw: [u8; 43] = hex::decode(&l.seller_pay_addr)?.try_into().map_err(|_| anyhow!("pay addr len"))?;
+    let pay = Option::<orchard::Address>::from(orchard::Address::from_raw_address_bytes(&pay_raw)).ok_or_else(|| anyhow!("pay addr"))?;
+    let pay_value = env_u64("TAMPER_PRICE", l.price)?;
+    let change = fund.note.value().inner().checked_sub(pay_value + fee(3)).ok_or_else(|| anyhow!("funding note too small"))?;
+    let coll = arr32(&l.coll)?;
+    let outs = [
+        // 0: successor carrier, must share the carrier spend's Action
+        Out { to: addr(&a6), value: 0, memo: encode_memo(K_HOP, &coll, l.item, l.hop + 1, &[]), ovk: Some(vault.to_ovk(Scope::External)) },
+        // 1: payment to the seller
+        Out { to: pay, value: pay_value, memo: empty_memo(), ovk: ovk(&a0) },
+        // 2: buyer change; the buyer pays the fee
+        Out { to: addr(&a0), value: change, memo: empty_memo(), ovk: ovk(&a0) },
+    ];
+    let (cpath, anchor) = witness(c, &ccmx, l.carrier.height, tip_h).await?;
+    let (fpath, fanchor) = witness(c, &fund.cmx, fh, tip_h).await?;
+    if anchor != fanchor {
+        bail!("witness anchors differ");
+    }
+    // EXPIRED=1: target far enough in the past that expiry_height (target + 40) is below tip.
+    let target = if std::env::var("EXPIRED").is_ok() { tip_h - 100 } else { tip_h + 1 };
+    let mut built = None;
+    for attempt in 1..=MAX_TRIES {
+        let mut b = Builder::new(
+            TEST_NETWORK,
+            BlockHeight::from_u32(target as u32),
+            BuildConfig::Standard {
+                sapling_anchor: None,
+                orchard_anchor: None,
+                ironwood_anchor: Some(anchor),
+                orchard_padding: BundlePadding::DEFAULT,
+                ironwood_padding: BundlePadding::DEFAULT,
+            },
+        );
+        b.add_ironwood_spend::<std::convert::Infallible>(vault.clone(), carrier, cpath.clone()).map_err(|e| anyhow!("spend: {e}"))?;
+        b.add_ironwood_spend::<std::convert::Infallible>(a0.fvk.clone(), fund.note, fpath.clone()).map_err(|e| anyhow!("spend: {e}"))?;
+        for o in &outs {
+            let memo = MemoBytes::from_bytes(&o.memo).map_err(|e| anyhow!("memo {e:?}"))?;
+            b.add_ironwood_output::<std::convert::Infallible>(o.ovk.clone(), o.to, Zatoshis::from_u64(o.value).unwrap(), memo)
+                .map_err(|e| anyhow!("output: {e}"))?;
+        }
+        let res = b.build_for_pczt(OsRng, &FeeRule::standard()).map_err(|e| anyhow!("build_for_pczt: {e}"))?;
+        let m = &res.ironwood_meta;
+        let (cai, fai) = (m.spend_action_index(0).unwrap(), m.spend_action_index(1).unwrap());
+        if m.output_action_index(0) != Some(cai) {
+            println!("  attempt {attempt}: binding not satisfied, rebuilding");
+            continue;
+        }
+        println!("  attempt {attempt}: bound ok, carrier action {cai}, funding action {fai}");
+        built = Some((Creator::build_from_parts(res.pczt_parts).ok_or_else(|| anyhow!("tx version not PCZT-compatible"))?, cai, fai));
+        break;
+    }
+    let (p, cai, fai) = built.ok_or_else(|| anyhow!("binding not satisfied after {MAX_TRIES} tries"))?;
+    println!("  pczt expiry_height {}", p.global().expiry_height());
+    let p = IoFinalizer::new(p).finalize_io().map_err(|e| anyhow!("io_finalize: {e:?}"))?;
+    let t = std::time::Instant::now();
+    let pk = orchard::circuit::ProvingKey::build(orchard::bundle::BundleVersion::ironwood_v3().circuit_version());
+    let tk = t.elapsed();
+    let p = Prover::new(p).create_ironwood_proof(&pk).map_err(|e| anyhow!("prove: {e:?}"))?.finish();
+    println!("  proving key {:.1}s, proof {:.1}s", tk.as_secs_f64(), (t.elapsed() - tk).as_secs_f64());
+    let mut s = Signer::new(p).map_err(|e| anyhow!("signer: {e:?}"))?;
+    s.sign_ironwood(fai, &a0.sak).map_err(|e| anyhow!("sign funding: {e:?}"))?;
+    let p = Redactor::new(s.finish())
+        .redact_ironwood_with(|mut r| {
+            r.redact_action(fai, |mut a| {
+                a.clear_spend_fvk();
+                a.clear_spend_witness();
+            })
+        })
+        .finish();
+    // Negative check: the buyer alone cannot produce a valid tx (the carrier spend is unsigned).
+    match TransactionExtractor::new(p.clone()).extract() {
+        Ok(tx) => bail!("UNEXPECTED: buyer alone extracted tx {}", tx.txid()),
+        Err(e) => println!("  buyer-alone extract refused: {e:?}"),
+    }
+    let bytes = p.serialize().map_err(|e| anyhow!("serialize: {e:?}"))?;
+    fs::write(sale_pczt_path(), &bytes)?;
+    println!("SALE-BUY wrote {} ({} bytes), carrier action {cai}, pays {pay_value} zats", sale_pczt_path().display(), bytes.len());
+    Ok(())
+}
+
+/// Seller: check the buyer's PCZT against the listing, sign the carrier spend, extract (which
+/// verifies the proof and every signature) and broadcast unless DRY.
+async fn sale_accept(c: &mut Client, dry: bool) -> Result<()> {
+    use pczt::roles::{signer::Signer, tx_extractor::TransactionExtractor};
+    let l: Listing = load("listing.json")?;
+    let (a3, a5) = (acct(3)?, acct(5)?);
+    let p = pczt::Pczt::parse(&fs::read(sale_pczt_path())?).map_err(|e| anyhow!("parse pczt: {e:?}"))?;
+    let tip_h = tip(c).await?;
+    // 1. expiry: must still be minable a few blocks from now
+    let exp = *p.global().expiry_height() as u64;
+    if exp < tip_h + 3 {
+        bail!("REFUSED: PCZT expired or about to (expiry_height {exp}, tip {tip_h})");
+    }
+    // 2. network upgrade
+    let branch = u32::from(zcash_protocol::consensus::BranchId::for_height(&TEST_NETWORK, BlockHeight::from_u32((tip_h + 1) as u32)));
+    if *p.global().consensus_branch_id() != branch {
+        bail!("REFUSED: consensus branch {:08x} != {branch:08x}", p.global().consensus_branch_id());
+    }
+    // Checks below read the effects (ciphertexts, nullifiers), not the PCZT's plaintext fields.
+    let fx = p.clone().into_effects().map_err(|e| anyhow!("effects: {e:?}"))?;
+    let b = fx.ironwood_bundle().ok_or_else(|| anyhow!("REFUSED: no Ironwood bundle"))?;
+    // 3. the carrier spend is in the tx
+    let carrier = note_from_json(&l.carrier.note)?;
+    let nf = carrier.nullifier(&a3.fvk).to_bytes();
+    let ai = b.actions().iter().position(|a| a.nullifier().to_bytes() == nf).ok_or_else(|| anyhow!("REFUSED: carrier spend not in PCZT"))?;
+    // 4. payment: outputs the seller pay key can open, to the listed address, sum to the price
+    let pay = addr(&a5);
+    let paid: u64 = decrypt_actions(b, &a5.fvk).iter().filter(|(_, n)| n.recipient() == pay).map(|(_, n)| n.value().inner()).sum();
+    if paid != l.price {
+        bail!("REFUSED: payment {paid} zats != listed price {}", l.price);
+    }
+    println!("  checks ok: expiry {exp} (tip {tip_h}), branch {branch:08x}, carrier spend in action {ai}, payment {paid} zats");
+    let mut s = Signer::new(p).map_err(|e| anyhow!("signer: {e:?}"))?;
+    s.sign_ironwood(ai, &a3.sak).map_err(|e| anyhow!("sign carrier: {e:?}"))?;
+    let tx = TransactionExtractor::new(s.finish()).extract().map_err(|e| anyhow!("extract: {e:?}"))?;
+    let act = &tx.ironwood_bundle().unwrap().actions()[ai];
+    assert_eq!(act.nullifier().to_bytes(), nf);
+    let succ = hex::encode(act.cmx().to_bytes());
+    let txid = tx.txid().to_string();
+    let mut raw = vec![];
+    tx.write(&mut raw)?;
+    println!("  extracted tx {txid}: {} actions, {} bytes, successor cmx {}..", tx.ironwood_bundle().unwrap().actions().len(), raw.len(), &succ[..12]);
+    if dry {
+        fs::write(dir().join("sale_dry_tx.bin"), &raw)?;
+        println!("SALE-ACCEPT DRY {txid} (not broadcast, bytes in sale_dry_tx.bin)");
+        return Ok(());
+    }
+    let r = c.send_transaction(zcash_client_backend::proto::service::RawTransaction { data: raw, height: 0 }).await?.into_inner();
+    if r.error_code != 0 {
+        bail!("rejected by node: code {} {}", r.error_code, r.error_message);
+    }
+    let mut pkg = l.package.clone();
+    pkg.hops.push(Hop { note: l.carrier.note.clone(), vault_fvk: l.vault_fvk.clone() });
+    save("package_item1_sale.json", &pkg)?;
+    save("sale.json", &serde_json::json!({ "txid": txid, "carrier_action": ai, "successor_cmx": succ }))?;
+    println!("SALE-ACCEPT {txid}");
+    Ok(())
 }
 
 #[tokio::main]
