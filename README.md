@@ -5,6 +5,8 @@ Collectibles bound to shielded notes on Zcash. This repo contains a working test
 > Status: research PoC. Testnet only. Not audited. Do not use real funds.
 > Working name: **Carrier**. The product name is still open. These are not ERC-721 tokens, so the docs avoid calling them NFTs.
 
+**New here?** Read [`docs/OVERVIEW.md`](docs/OVERVIEW.md) ([한국어](docs/OVERVIEW.ko.md)): goal, method, progress, and how this differs from zkSNARKs and Bitcoin Ordinals.
+
 **Continuing this work with a coding agent?** Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first. Claude Code also loads [`CLAUDE.md`](CLAUDE.md) automatically.
 
 ## Why this exists
