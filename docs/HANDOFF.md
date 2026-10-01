@@ -46,7 +46,7 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | Issue, transfer, supply cap (FINAL) | proven on testnet 2026-09-29 | README table, `evidence/` |
 | Attacks: double spend, forged successor, mint after FINAL | all rejected (node / verifier / verifier) | README table |
 | Artwork on chain | byte-identical rebuild | `scripts/render_from_chain.py` |
-| Verifier successor-validity rule | **gap**, OPEN_ISSUES #7 | see section 5, task 1 |
+| Verifier successor-validity rule | done 2026-09-30 (OPEN_ISSUES #7 closed) | `verify.sh` |
 | FINAL hard seal (unspendable address) | not done | OPEN_ISSUES #2 |
 | Atomic sale via PCZT | designed, **not tested** | `docs/marketplace/SPEC.md` section 3 |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |

@@ -15,10 +15,14 @@ echo "== build"
 cargo build --release --quiet
 
 HOLDER=""
+FUNDING=""
 if [ -f state/seed.hex ]; then
-  # acct3 at OFF=10 is the buyer vault of the 2026-09-29 run.
-  HOLDER=$(STATE=state OFF=10 ./target/release/carrier keys | awk '$1=="acct3"{print $3}')
+  # acct3 at OFF=10 is the buyer vault of the 2026-09-29 run. acct0 (funding) is not shifted by OFF.
+  keys=$(STATE=state OFF=10 ./target/release/carrier keys)
+  HOLDER=$(awk '$1=="acct3"{print $3}' <<<"$keys")
+  FUNDING=$(awk '$1=="acct0" && $2=="fvk"{print $3}' <<<"$keys")
   [ -n "$HOLDER" ] || fail "could not derive buyer vault FVK from state/"
+  [ -n "$FUNDING" ] || fail "could not derive funding FVK from state/"
 else
   echo "   state/seed.hex not found: R3 holder checks skipped"
 fi
@@ -31,7 +35,12 @@ want "$out" "R1 issuance set: 2 item(s), finalized=true"
 want "$out" "R1 REJECT claimed item #3"
 want "$out" "R2 hop 0: spent in 45056894d3e1"
 # unspent=true only while the buyer still holds item #1. If a later test moves it, only "yes" is required.
-[ -z "$HOLDER" ] || want "$out" "R3 holder opens current carrier: yes"
+if [ -n "$HOLDER" ]; then
+  want "$out" "R2 hop 0: successor valid (HOP, value 0)"
+  want "$out" "R3 holder opens current carrier: yes"
+else
+  want "$out" "R2 hop 0: successor validity unverified"
+fi
 
 echo "== forged package (item #2)"
 set +e
@@ -41,9 +50,22 @@ set -e
 echo "$out"
 want "$out" "current carrier cmx 53c2a3eb7677"
 if [ -n "$HOLDER" ]; then
+  # The victim buyer (acct3) cannot open the real successor, so it is rejected outright.
   [ "$code" -eq 2 ] || fail "forged package was not rejected (exit $code)"
-  # When OPEN_ISSUES #7 lands, the failure line may change (for example to a "burned" verdict). Update this check then.
-  want "$out" "VERIFY FAIL"
+  want "$out" "VERIFY FAIL: holder cannot open current carrier"
+
+  echo "== forged package (item #2), opened by the real successor's recipient (funding acct0)"
+  # OPEN_ISSUES #7: the real successor is a funding change note (value > 0, empty memo), so item #2 is burned.
+  set +e
+  out=$(HOLDER_FVK=$FUNDING ./target/release/verify "$E/collection.json" 4416690 "$E/package_item2_forged.json")
+  code=$?
+  set -e
+  echo "$out"
+  [ "$code" -eq 3 ] || fail "forged package not reported burned (exit $code)"
+  want "$out" "R2 hop 0: successor invalid (value "
+  want "$out" "VERIFY BURNED: item #2 burned at hop 0"
+else
+  want "$out" "R2 hop 0: successor validity unverified"
 fi
 
 echo "== artwork rebuilt from chain bytes"

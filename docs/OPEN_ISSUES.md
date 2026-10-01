@@ -44,6 +44,6 @@ When the issuer OVK and IVK both open the same attack-mint output, `attack-mint`
 
 ## 7. Successor validity is not yet checked (found 2026-09-29)
 
-> Status: open. It is Task 1 in `docs/HANDOFF.md`.
+> Status: closed 2026-09-30. `src/bin/verify.rs` `successor_valid` enforces the rule (exit 3, `VERIFY BURNED`). `verify.sh` is green on Ryot's Mac: the genuine item #1 successor is valid, and the forged item #2, opened with the funding key, reports `successor invalid (value 9920000 != 0)` and is burned at hop 0.
 
 In the forge test, the true successor of item #2's carrier was the funding wallet's change note (value > 0, empty memo). That note was later spent in the attack-mint tx without any binding. R2 currently accepts any output in the same Action as the successor. Rule to add: a successor is valid only if `value == 0` and its memo is `HOP` with the same `coll` and item number. Otherwise the item is treated as **burned**, and later hops are ignored. The verifier needs the successor note opened, so the buyer checks its own received note. A third party can check this only with the next vault key.
