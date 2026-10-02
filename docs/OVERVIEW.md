@@ -6,7 +6,7 @@ Written 2026-09-30. Status: research proof of concept on **Zcash testnet only**.
 
 ## 1. In one paragraph
 
-Carrier puts collectibles on Zcash as **shielded notes**. One item is one zero-value private note. Its memo field holds the artwork. When the item changes hands, the old note is spent and its successor is created in the same "Action". Zcash's zero-knowledge circuit then forces the successor to be cryptographically linked to the note it replaces. Anyone holding the right viewing key can check the whole chain of owners from public blockchain data, without trusting a website or a database. On 2026-09-29 and 2026-09-30 we proved the full life cycle on testnet: mint, transfer, supply cap, three attacks, and a **one-transaction atomic sale** between a buyer and a seller.
+Carrier puts collectibles on Zcash as **shielded notes**. One item is one zero-value private note. Its memo field holds the artwork. When the item changes hands, the old note is spent and its successor is created in the same "Action". Zcash's zero-knowledge circuit then forces the successor to be cryptographically linked to the note it replaces. Anyone holding the right viewing keys can check the whole chain of owners from blockchain data, without trusting a website or a database (today the verifier still trusts the lightwalletd server it reads from; section 7). On 2026-09-29 and 2026-09-30 we proved the full life cycle on testnet: mint, transfer, supply cap, three attacks, and a **one-transaction atomic sale** between a buyer and a seller.
 
 ## 2. Why this project exists
 
@@ -61,13 +61,15 @@ A successor counts only if it has value 0 and a `HOP` memo for the same collecti
 
 ### 4.4 Verification without a website
 
-The `verify` program uses only public chain data, the public collection record, and a **provenance package** that the seller gives the buyer. The package contains the earlier carrier notes and their vault FVKs. It checks three rules:
+The `verify` program uses only chain data, the public collection record, a **provenance package** that the seller gives the buyer, and the holder's viewing key for the last hop. The package contains the earlier carrier notes and their vault FVKs. It checks three rules:
 
 | Rule | What it checks |
 |---|---|
 | **R1 issuance set** | The item is in the issuer's sequence chain, up to `FINAL`. |
-| **R2 transfer hops** | Each hop: the disclosed note matches the current commitment, its nullifier is on chain, and the successor is the output of the same Action and is valid (value 0, `HOP` memo). |
+| **R2 transfer hops** | Each hop: the disclosed note matches the current commitment, its nullifier is on chain, and the successor is the output of the same Action and is valid (value 0, `HOP` memo, next hop number). |
 | **R3 holder** | The claimed owner can decrypt the current carrier, and its nullifier has not appeared yet (it is unspent). |
+
+The verdict is HELD, SPENT (the chain is valid but that key no longer holds the item), BURNED, UNVERIFIED (no holder key) or FAIL. The link between notes is enforced by the circuit. Which note counts as a valid successor is the verifier's rule.
 
 Privacy follows from this. The public sees that Ironwood transactions happened, not which item moved or to whom. A buyer sees the history of the item it buys, because it receives the earlier vault FVKs. Per-item vaults keep that disclosure limited to one item.
 
@@ -81,8 +83,9 @@ A sale is **one transaction** with both legs:
 
 It uses a **PCZT** (partially created Zcash transaction):
 
-- **Buyer:** builds the transaction, proves it, signs only its own funding spend, removes its private data from the file, and hands the file to the seller.
-- **Seller:** checks the file. The payment must decrypt to the listed price at the seller's address, the carrier spend must be present, and the file must not be expired. The seller then signs the carrier spend and broadcasts.
+- **Buyer:** first verifies the item from chain (R1 to R3). Then it builds the transaction, proves it, signs only its own funding spend, clears its private fields from the file (since 2026-10-02 every buyer field the seller does not need), and hands the file to the seller.
+- **Seller:** checks the file. The payment must decrypt to the listed price at the seller's address, the carrier spend must be present and still unspent, and the file must not be expired or valid for too long. The seller then signs the carrier spend and broadcasts.
+- In the 2026-09-30 run both parties' keys came from one local test seed, separated in code. A run with separate seeds is pending.
 - Neither party can finish alone. Without both signatures the transaction is invalid. Without the seller's signature the buyer cannot even extract a transaction.
 
 ## 5. How this differs from zkSNARKs and Bitcoin Ordinals
@@ -175,22 +178,22 @@ All payments were between our own test keys. Testnet assets are never sold or of
 - **Two enforcement layers.** Double spends are stopped by consensus. Forged successors and mints after `FINAL` are stopped only by the verifier. A buyer who skips the verifier can be fooled.
 - **`FINAL` is not a hard seal yet.** The issuer can still spend it. Verifiers ignore any successor, but "no one can continue the chain" would be stronger (OPEN_ISSUES #2).
 - **Wallets.** No existing Zcash wallet shows carriers, builds bound transfers, or joins a PCZT from a website. The marketplace plan keeps carrier keys in the user's browser and uses normal wallets only for funding and payouts.
-- **One data source.** Block heights come from one lightwalletd operator. A second source is not confirmed yet.
+- **One data source.** All chain data comes from one lightwalletd operator. The verifier checks txids, hash links and internal consistency, and can cross-check a second server, but none was reachable yet, and proof of work is not validated (OPEN_ISSUES #5).
 - **Buyer privacy.** A buyer sees the previous vaults' history of that item.
-- **PCZT privacy.** In the current CLI the seller can read the buyer's change output from the PCZT. Redacting it is a follow-up.
+- **Disclosure.** Any prospective buyer who receives an item's provenance can republish it. The marketplace limits who receives it, but cannot prevent this (marketplace SPEC section 3).
 
 ## 8. Next steps
 
 1. Browser network: streaming block ranges with Ironwood data over grpc-web.
 2. `FINAL` hard seal.
 3. A shared core crate that compiles for native and WebAssembly.
-4. The public web app, only after the marketplace spec (`docs/marketplace/SPEC.md`, draft 2) is approved.
+4. The public web app, only after the marketplace spec (`docs/marketplace/SPEC.md`, draft 3) is approved.
 
 ## 9. Check it yourself
 
 ```bash
 cargo build --release
-bash verify.sh      # re-verifies both testnet runs from public chain data; prints VERIFY.SH OK
+bash verify.sh      # re-checks the R1 to R3 verdicts, the sale payment and the artwork from chain data; prints VERIFY.SH OK
 ```
 
 More detail: `docs/SPEC.md` (format and rules), `docs/OPEN_ISSUES.md`, `docs/marketplace/SPEC.md`, `docs/HANDOFF.md` (state and next tasks).

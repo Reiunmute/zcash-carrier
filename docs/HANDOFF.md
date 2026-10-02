@@ -24,9 +24,9 @@ Then read, in order:
 
 zkSNARKs (the Zcash collection traded on Zilkroad) keeps ownership in the operator's database. Ryot wants a Zcash-native alternative that is more on-chain and closer to real zk than that:
 - ownership is a shielded note on chain
-- every transfer is enforced by Zcash's Action circuit
+- the link from each owner to the next is enforced by Zcash's Action circuit (successor validity is a verifier rule)
 - the artwork is in the memo
-- anyone can verify without trusting a website
+- anyone can verify without trusting a website (today the verifier still trusts its lightwalletd server; see OPEN_ISSUES #5)
 
 The end product is an OpenSea-style public website where people connect a wallet, see their items, and buy and sell them.
 
@@ -42,22 +42,24 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 
 | Area | State | Evidence |
 |---|---|---|
-| Carrier format + rules R1 to R3 | implemented, testnet-proven | `docs/SPEC.md`, `verify.sh` |
+| Carrier format + rules R1 to R3 | implemented, testnet-proven. Since 2026-10-02 in `src/verifier.rs`, verdicts HELD / SPENT / BURNED / UNVERIFIED / FAIL | `docs/SPEC.md`, `verify.sh` |
 | Issue, transfer, supply cap (FINAL) | proven on testnet 2026-09-29 | README table, `evidence/` |
 | Attacks: double spend, forged successor, mint after FINAL | all rejected (node / verifier / verifier) | README table |
 | Artwork on chain | byte-identical rebuild | `scripts/render_from_chain.py` |
 | Verifier successor-validity rule | done 2026-09-30 (OPEN_ISSUES #7 closed) | `verify.sh` |
 | FINAL hard seal (unspendable address) | not done | OPEN_ISSUES #2 |
-| Atomic sale via PCZT | proven on testnet 2026-09-30 (CLI, local key sets) | `evidence/testnet-2026-09-30/`, `verify.sh` |
+| Atomic sale via PCZT | mined on testnet 2026-09-30 (CLI; one local seed, roles separated in code). Hardened and DRY-tested 2026-10-02: buyer verifies first, full redaction, 9 negative checks incl. seller tamper | `evidence/testnet-2026-09-30/`, `evidence/testnet-2026-10-02/`, `verify.sh` |
+| Codex review | 2026-10-02, 14 findings, all addressed (code, gate, docs, SPEC draft 3) | `docs/research/codex-review-2026-10-02.md` |
+| lightwalletd trust | one server. txid, hash-link and compact/full checks done; `LWD2` cross-check implemented, no independent second server reachable yet | OPEN_ISSUES #5 |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
-| Marketplace SPEC | draft 2 (2026-10-01), **awaiting Ryot's approval**. Decisions D1 to D7 in section 10 | `docs/marketplace/SPEC.md` |
+| Marketplace SPEC | draft 3 (2026-10-02), **awaiting Ryot's approval**. Decisions D1 to D7 in section 10 | `docs/marketplace/SPEC.md` |
 | Web app | not started | none |
 | GitHub | `Reiunmute/zcash-carrier`, **private** | `git remote -v` |
 
 ## 3. Decisions already made (do not reopen without new evidence)
 
 1. **The note-bound carrier is the right primitive today.**
-   - ZSA (ZIP 226/227) has no mainnet date, so it is only a migration target.
+   - ZSA (ZIP 226/227) has no mainnet date, so it is only a migration target. No consensus rule can carry a carrier into a native asset, so any migration would be issuer-driven (burn and reissue).
    - Transparent inscriptions clash with the shielded brand.
    - The only way a buyer can independently check a unique successor is the circuit-enforced `rho = nf_old`.
 2. **Every issuance output uses the issuer OVK.** The v0 collection `c5d8637a…` was discarded for missing it.
@@ -96,10 +98,13 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
   | acct3 | buyer vault in the 2026-09-29 transfer, seller in the 2026-09-30 sale | 3+OFF |
   | acct4 | vault of item #2 | 4+OFF |
   | acct5 | seller pay address in the sale | 5+OFF |
-  | acct6 | buyer's new vault (holds item #1 now) | 6+OFF |
+  | acct6 | buyer's new vault in the 2026-09-30 sale (holds item #1 now) | 6+OFF |
+  | acct7 | buyer vault for DRY sale tests from 2026-10-02 (holds nothing) | 7+OFF |
+
+  The FVKs of acct0, acct3, acct5 and acct6 are published in `evidence/testnet-2026-09-30/viewing_keys.json` so `verify.sh` runs fully without the seed.
 
   `carrier keys` prints the FVKs. FVKs are fine to show. Never print spending keys.
-- **Funds:** faucet 10,000,000 zats. 2026-09-30, checked against nullifiers up to height 4425656: acct0 holds 9,885,000 zats in action 1 of the sale tx `6bdeb823…`, and acct5 holds the 10,000 zat sale payment. `carrier sale-buy` defaults to the `attack_mint.json` change, which is now spent. Pass `FUND_TX=6bdeb823ff6556dce7ef8c254c8ceaa257913cc820c43da271c52dabdc98ba5b` for the next sale.
+- **Funds:** faucet 10,000,000 zats. 2026-09-30, checked against nullifiers up to height 4425656: acct0 holds 9,885,000 zats in action 1 of the sale tx `6bdeb823…`, and acct5 holds the 10,000 zat sale payment. `carrier sale-buy` requires `FUND_TX`; use `FUND_TX=6bdeb823ff6556dce7ef8c254c8ceaa257913cc820c43da271c52dabdc98ba5b` for the next sale. The 2026-10-02 DRY tests spent nothing.
 - **Faucets:**
   - `scripts/claim_jino.py <addr>` (jinolabs, sha256 PoW, 0.1 TAZ).
   - The Valar faucet has a global daily cap and returned 429.
@@ -115,6 +120,8 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
   - On this Mac, Chromium builds are in `~/Library/Caches/ms-playwright/`. The scripts were run from an existing project that has Playwright 1.59.1.
 
 ## 5. Next tasks, in order
+
+> 2026-10-02: Tasks 1 and 2 are done. From here the work follows `docs/marketplace/SPEC.md` draft 3 section 9 (prerequisites P4 to P9; P3 is done). Tasks 3 to 5 below map to P6, P9 and P7.
 
 Each task lists its exit criteria. Do not start the web app (task 6) before Ryot approves the marketplace SPEC.
 
@@ -149,7 +156,9 @@ Exit: one mined testnet tx containing both legs, the carrier bound in the same A
 
 Record everything under `evidence/testnet-<date>/`.
 
-> Status: done 2026-09-30. `carrier sale-list | sale-buy | sale-accept`. Tx `6bdeb823ff65…` mined at 4425592: carrier pair in action 2, 10,000 zats to acct5. The verifier shows acct6 as holder. All three negative checks pass under `DRY=1`. See `evidence/testnet-2026-09-30/README.md`. Follow-up: redact the buyer change output's plaintext fields before the PCZT goes to the seller.
+> Status: done 2026-09-30. `carrier sale-list | sale-buy | sale-accept`. Tx `6bdeb823ff65…` mined at 4425592: carrier pair in action 2, 10,000 zats to acct5. The verifier shows acct6 as holder. All three negative checks pass under `DRY=1`. See `evidence/testnet-2026-09-30/README.md`. Caveat: buyer and seller keys came from one local seed.
+>
+> 2026-10-02 (after the Codex review): the buyer runs R1 to R3 before paying, redaction covers every buyer field, the successor uses the buyer's OVK, the seller also checks listing expiry, PCZT expiry cap, carrier liveness, value pools and action count, and a seller who edits the tx after the buyer signed fails extraction. All DRY: `evidence/testnet-2026-10-02/README.md`. Still open: a run with separate seeds (needs a broadcast).
 
 ### Task 3. Browser network: streaming and Ironwood compact data
 
@@ -174,7 +183,7 @@ Remember the multithreading requirements (see `research/stage1-checks/RESULTS.md
 
 ### Task 6. Web app. Only after Ryot approves `docs/marketplace/SPEC.md`
 
-Follow the approved SPEC (draft 2 at the time of writing): pages, connect flow with a Noir derived signature, deposit, intent and private disclosure, buy, accept. Prerequisites P3 to P9 come first.
+Follow the approved SPEC (draft 3 at the time of writing): pages, connect flow with a Noir derived signature, deposit, intent and authenticated disclosure, buy, accept. Prerequisites P4 to P12 come first.
 
 Before any UI work, ask Ryot for design direction. His general preferences:
 - typography and reading order first

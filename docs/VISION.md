@@ -22,7 +22,7 @@ A marketplace website where:
 - **Your art is yours.** Owning a piece means holding a private note on the Zcash blockchain. No company list is involved.
 - **A sale is one step.** The art and the money change hands in one blockchain transaction. Either both move or nothing moves. The website never touches the money or the art.
 - **Nobody sees your collection.** Outsiders only see that a Zcash transaction happened. A buyer learns the history of the one piece they buy, and nothing else about you.
-- **Anyone can check a piece is real**, using only public blockchain data. You do not have to trust our website.
+- **Anyone can check a piece is real**, in their own browser, from blockchain data and the piece's history that the seller hands over. You do not have to trust our website. (Today the check still trusts the blockchain data server it reads from; removing that trust is on the road below.)
 - **The art lives on the blockchain**, not on a server that might go offline.
 
 ## Goals
@@ -50,14 +50,15 @@ Everything below happened on the Zcash test network, which uses play money.
 | 2026-09-29 | Created two art pieces, capped the supply, moved one piece, and blocked three kinds of cheating |
 | 2026-09-30 | Showed that a web browser can do the heavy math in about 2 to 4 seconds |
 | 2026-09-30 | **Sold a piece in one transaction**: the art went to the buyer and the payment to the seller together, with no middleman |
+| 2026-10-02 | Hardened the sale after an outside review: the buyer checks the piece before paying, the buyer's private details are removed from the shared file, and nine cheating attempts are refused, including a seller changing the deal after the buyer signed (test runs, nothing sent) |
 
-The competing project's own whitepaper lists this kind of one-step sale as its biggest unanswered question. We answered it.
+The competing project's own whitepaper lists this kind of one-step sale as its biggest unanswered question. We answered it on the test network. So far both sides' keys lived on one machine; a run with truly separate parties is next.
 
 ## The road from here
 
-1. **Make the sale private enough for the public.** Hand a piece's history only to a real buyer, hide the buyer's leftover change, and make sale transactions look like ordinary ones.
+1. **Make the sale private enough for the public.** Hand a piece's history only to a real buyer over a checked channel, and make sale transactions look like ordinary ones. (Hiding the buyer's details in the shared file is done.)
 2. **Make recovery safe.** A user who restores their wallet from its recovery phrase gets their pieces and their proofs back.
-3. **Build the browser engine.** One shared core that runs in the browser: verify, build, prove, sign.
+3. **Build the browser engine.** One shared core that runs in the browser: verify, build, prove, sign. Check blockchain data against more than one source.
 4. **Write the final marketplace plan and get it approved.** Then choose a visual design.
 5. **Open a test-network beta.** Real people try it with play money. Nothing is sold for real value.
 6. **Security review and legal review.**

@@ -13,7 +13,7 @@ Related: their public repo `Zecbit-nft/nscv` (2026-09-20) implements the formats
 - Their only on-chain evidence is one issuance transaction of 10 assets at height 251 on the ZSA testnet (p.49). No transfer or trade txid is given.
 - Part VIII describes a mainnet-today construction (nullifier-sealed client-side validation) that is **the same core idea as Carrier**: one note per item, spend and successor in the same Action, `rho = nf`, one account per item, per-hop full viewing keys (p.184-187, 217, 236). They date its identification to September 2026 (p.380). They show no deployment of it.
 - Their mainnet plan for that construction is a **custodial** venue: the venue holds buyer funds between payment and delivery and takes a percentage of seller proceeds (p.246, 404-412).
-- They treat two-party co-construction of one transaction as their top open question (Appendix D.1, p.312) and their "one unverified critical claim" (p.431). Carrier answered it on testnet on 2026-09-30.
+- They treat two-party co-construction of one transaction as their top open question (Appendix D.1, p.312) and their "one unverified critical claim" (p.431). Carrier answered it on testnet on 2026-09-30, with both parties' keys derived from one local test seed and separated in code. A run with separate seeds is pending.
 
 ## 2. The co-construction question, and our answer
 
@@ -27,7 +27,7 @@ Our result: tx `6bdeb823ff6556dce7ef8c254c8ceaa257913cc820c43da271c52dabdc98ba5b
 |---|---|
 | 1. Can one party prove an Action whose witness belongs to the other? | Yes. Proving a spend needs the note, its Merkle path and the full viewing key parts, not the spending key. Provenance already discloses the note and vault FVK to the buyer, so the buyer proved the whole bundle (`src/bin/carrier.rs`, `sale_buy`). |
 | 2. Can the binding signature be produced jointly? | No joint secret is needed. The binding key is the sum of value-commitment randomness chosen by the party that constructs the bundle. The pczt IO Finalizer computes it and the extractor applies it. |
-| 3. Is there a one-sided broadcastable state? | The buyer alone cannot extract a transaction (`MissingSpendAuthSig`, `negative_checks.log`). The seller can only broadcast the agreed transaction. Unverified: that a seller who edits the effects after the buyer signed fails extraction. |
+| 3. Is there a one-sided broadcastable state? | The buyer alone cannot extract a transaction (`MissingSpendAuthSig`, `negative_checks.log`). The seller can only broadcast the agreed transaction: on 2026-10-02 a seller who flipped one byte of the payment ciphertext after the buyer signed got `SighashMismatch` at extraction (`evidence/testnet-2026-10-02/negative_checks.log`, DRY). |
 
 Consequence: the seller double-sell race they leave open (p.241, 257, 416) is closed, because two sales of one carrier spend the same nullifier and only one can be mined.
 
@@ -35,7 +35,7 @@ Consequence: the seller double-sell race they leave open (p.241, 257, 416) is cl
 
 | | ZecBit Part VIII / NSCV | Carrier |
 |---|---|---|
-| Status | Specification and Python formats with fake crypto backends. No transactions. Examples use placeholders (p.443) | Rust on orchard 0.15.5. Mint, transfer, three attacks and an atomic sale mined on testnet. `verify.sh` re-checks from chain data |
+| Status | Specification and Python formats with fake crypto backends. No transactions. Examples use placeholders (p.443) | Rust on orchard 0.15.5. Mint, transfer, two attacks and an atomic sale mined on testnet (the double spend was refused by the node, not mined). `verify.sh` re-checks the verdicts and the sale payment from chain data |
 | Pool | Ironwood after NU6.3 sealed Orchard on mainnet, 2026-07-28 at height 3,428,143 (p.28, 175) | Ironwood, testnet. The height matches `zcash_protocol` mainnet NU6.3 activation |
 | Item note | Locks 1 zatoshi per item (p.444) | Zero value |
 | Successor rule | Any output of that Action the next key opens. No value or memo check | Value 0 and a HOP memo, otherwise burned |
@@ -79,8 +79,8 @@ Reading: demand for public assets with private funding exists. Demand for any Zc
 3. Before a public marketplace:
    - deliver the provenance package only to a committed buyer, never in a public listing
    - store provenance in self-addressed memos
-   - redact the buyer's change and per-Action randomness in the PCZT; pad Action counts; randomise anchor age
-   - test that a seller who edits the transaction after the buyer signed is rejected
+   - redact the buyer's change and per-Action randomness in the PCZT (done 2026-10-02); pad Action counts; randomise anchor age
+   - test that a seller who edits the transaction after the buyer signed is rejected (done 2026-10-02, DRY)
    - mainnet only after Ryot changes the testnet-only rule
    - browser key handling as in section 4
 4. ZSA, if it ships, will not migrate our items automatically (their p.390). Our docs call ZSA a migration target; any migration would be issuer-driven (burn and reissue).

@@ -36,9 +36,20 @@ Ordinary wallets (Zodl, etc.) will show a zero-value note at best. They may also
 - render the memo artwork
 - build bound transfers
 
-## 5. Explorer cross-check
+## 5. lightwalletd trust (was: explorer cross-check)
 
-Mined heights come from one lightwalletd operator (`testnet.zec.rocks`). A second independent source has not been confirmed yet.
+Every chain fact the verifier uses comes from one lightwalletd operator (`testnet.zec.rocks`): transactions, compact blocks, heights, nullifiers and tree states. A malicious or compromised server could hide a spend or serve fabricated data. "Verified in your own browser" therefore means verified against that server's view.
+
+Done 2026-10-02 (`src/lib.rs`, `src/verifier.rs`):
+- a returned transaction must hash to the requested txid
+- a block range must be contiguous and hash-linked
+- a full spend tx must match the compact block it was indexed from (height, nullifier, cmx)
+- duplicate nullifiers in served data are refused
+- `LWD2=<url>` compares block hashes at every height a verdict used, plus a recent height, with a second server
+
+Still open:
+- No independent native-gRPC testnet lightwalletd was reachable on 2026-10-02 (ECC's endpoint timed out; ChainSafe serves grpc-web only). Run our own node as the second source.
+- None of the above validates proof of work. A light-client header check, or a full node we trust, is the real fix (marketplace SPEC section 6.2).
 
 ## 6. Verifier cosmetics
 

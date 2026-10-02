@@ -13,7 +13,7 @@ cargo build --release      # always build release. Proving in debug is very slow
 bash verify.sh             # gate. Run after every code change. Must print "VERIFY.SH OK".
 ```
 
-`verify.sh` needs network access (testnet lightwalletd). Holder (R3) checks run only when `state/seed.hex` exists.
+`verify.sh` needs network access (testnet lightwalletd). It runs every check from the published test viewing keys in `evidence/testnet-2026-09-30/viewing_keys.json`; when `state/seed.hex` exists it also checks those keys against the seed.
 
 ## Hard rules
 
@@ -24,7 +24,7 @@ bash verify.sh             # gate. Run after every code change. Must print "VERI
 5. **Never sell or offer testnet assets.** Ironwood pool only. Do not use the transparent pool for carriers.
 6. **Do not collect lists pairing social accounts with Zcash addresses.**
 7. **Do not modify `evidence/testnet-2026-09-29/`.** It is the public record of the run. New runs get a new dated folder.
-8. **Do not implement `docs/marketplace/SPEC.md` until Ryot approves it.** It is draft 1 and not approved. Feasibility tasks listed in `docs/HANDOFF.md` are allowed.
+8. **Do not implement `docs/marketplace/SPEC.md` until Ryot approves it.** It is a draft (draft 3) and not approved. Feasibility tasks listed in `docs/HANDOFF.md` are allowed.
 
 ## Conventions
 

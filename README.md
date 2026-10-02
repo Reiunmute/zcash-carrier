@@ -17,7 +17,7 @@ zkSNARKs (the Zcash identity collection sold on Zilkroad) keeps ownership in the
 
 This project achieves the same goal with Zcash exactly as deployed today:
 - **Ownership** is a shielded note on chain. No company database is involved.
-- **Every transfer** is enforced by the zk proof inside Zcash's Action circuit.
+- **The link from each owner to the next** is enforced by the zk proof inside Zcash's Action circuit (`rho = nf`). Which output counts as a valid successor (value 0, HOP memo) is a verifier rule, not a consensus rule.
 - **The artwork** lives in the note memo.
 
 ## How it works
@@ -26,7 +26,7 @@ This project achieves the same goal with Zcash exactly as deployed today:
 2. **Same-Action binding.** A transfer spends the carrier and creates its successor in the **same Action**. The circuit enforces `rho_new = nf_old` (orchard 0.15.5 `circuit.rs:801`), so the successor is cryptographically chained to the note it replaces. Given the previous note and its viewing key, anyone can find the one legitimate successor.
 3. **Double spends** are rejected by the Zcash node through the nullifier set.
 4. **Supply cap.** The issuer keeps a chain of sequence notes, also bound Action to Action, that ends in a `FINAL` note. The issuer viewing key is public, so anyone can count the issuance set. Anything minted after `FINAL` is invalid.
-5. **Independent verifier.** `verify` checks everything from public chain data, the public collection record, and the provenance package the seller hands the buyer. No site and no database are required.
+5. **Independent verifier.** `verify` checks R1 to R3 from chain data, the public collection record, the provenance package the seller hands the buyer, and the holder's viewing key for the last hop. Its verdict is HELD, SPENT, BURNED, UNVERIFIED (no holder key) or FAIL. No site and no database are required. It does trust the lightwalletd server it reads from: it checks txids, hash links and compact-versus-full consistency, but not proof of work. `LWD2` adds a second server to cross-check.
 
 Details: [`docs/SPEC.md`](docs/SPEC.md).
 
@@ -50,7 +50,13 @@ Both images were rebuilt from bytes pulled out of on-chain memos and are byte-id
 
 An earlier collection `c5d8637a…` was discarded. Its issuance outputs carried no issuer OVK, so a public audit saw zero items. Every issuance output now uses the issuer OVK.
 
-Re-check all of this at any time with `bash verify.sh`. It takes a few seconds and needs network access.
+`bash verify.sh` re-checks the R1 to R3 verdicts, the 2026-09-30 sale payment and both artworks from chain data in a few seconds, with or without the local seed (it uses the published test viewing keys in `evidence/testnet-2026-09-30/viewing_keys.json`). It does not re-run the node's double-spend rejection or the PCZT negative checks; those are logged in the evidence folders.
+
+## Atomic sale (2026-09-30, and hardened 2026-10-02)
+
+- Tx `6bdeb823ff65…`, mined at 4425592: item #1 moved to the buyer's new vault and 10,000 zats went to the seller, in one transaction built with PCZT (`evidence/testnet-2026-09-30/`).
+- Buyer and seller keys came from one local test seed, separated in code only. A run with separate seeds needs a broadcast and is pending.
+- 2026-10-02, DRY only: the buyer now verifies R1 to R3 before paying, the PCZT is fully redacted, and nine negative checks pass, including a seller who edits the tx after the buyer signed (`evidence/testnet-2026-10-02/`).
 
 ## Marketplace plan
 
@@ -64,21 +70,22 @@ The goal is an OpenSea-style public website: connect a wallet, see your items, l
 | Can a browser prove Ironwood Actions fast enough? | Yes. Multithreaded WASM on an M4 Pro: 1.9 s for 2 Actions, 3.6 s for 4 Actions. Single-thread: 11.9 s and 21.8 s. |
 | Can a browser reach testnet lightwalletd? | `zec.rocks` has no CORS. ChainSafe grpc-web works, and so does a small relay of our own. |
 
-The plan is [`docs/marketplace/SPEC.md`](docs/marketplace/SPEC.md) (draft 2, **not yet approved**). Stage 1 needs no wallet integration: keys and proofs stay in the user's browser, and the server keeps only a public order book. Stages 2 and 3 (Vizor support, Zcash WalletConnect) come later.
+The plan is [`docs/marketplace/SPEC.md`](docs/marketplace/SPEC.md) (draft 3, **not yet approved**). Stage 1 needs no wallet integration: keys and proofs stay in the user's browser, and the server keeps only a public order book. Stages 2 and 3 (Vizor support, Zcash WalletConnect) come later.
 
 ## Layout
 
 ```
 src/lib.rs                  memo format, keys, lightwalletd client, tree witness, decryption
-src/bin/carrier.rs          issuer/holder CLI: info, scan, genesis, final, transfer, attack-*, keys
-src/bin/verify.rs           independent verifier (public data only)
+src/verifier.rs             R1 to R3, shared by verify and the sale buyer path
+src/bin/carrier.rs          issuer/holder CLI: info, scan, genesis, final, transfer, attack-*, sale-*, keys
+src/bin/verify.rs           verifier CLI (chain data, collection record, package, holder key); payment check
 verify.sh                   repo gate: build + re-verify testnet evidence + rebuild art
 art/gen.py                  generates the 26x26 16-colour test portraits (art*.bin)
 scripts/claim_jino.py       testnet faucet claim (solves the faucet's sha256 PoW)
 scripts/render_from_chain.py  rebuilds PNGs from verifier output, compares with source
 docs/SPEC.md                carrier format and verification rules R1 to R3
-docs/OPEN_ISSUES.md         known limits and the next tests (#7 is a verifier gap)
-docs/marketplace/SPEC.md    marketplace plan, draft 2
+docs/OPEN_ISSUES.md         known limits and the next tests
+docs/marketplace/SPEC.md    marketplace plan, draft 3
 docs/HANDOFF.md             state, decisions, next tasks for the next agent
 research/stage1-checks/     browser feasibility scripts and results
 evidence/                   public testnet artifacts (no spending keys)

@@ -1,6 +1,6 @@
 # Testnet run 2026-09-30: two-party atomic sale via PCZT
 
-Task 2 in `docs/HANDOFF.md`. Item #1 of collection `c7fe2aeadb5a6200` (see `../testnet-2026-09-29/`) moved from the seller's vault to the buyer's new vault, and the payment went to the seller in the **same transaction**. The tx was built and signed by two key sets that only met through the PCZT file.
+Task 2 in `docs/HANDOFF.md`. Item #1 of collection `c7fe2aeadb5a6200` (see `../testnet-2026-09-29/`) moved from the seller's vault to the buyer's new vault, and the payment went to the seller in the **same transaction**. The buyer and seller roles used different accounts of one local test seed. The code passed only the PCZT file between them, but one machine held both key sets, so this is role separation in code, not a test between two independent parties. That run is pending (it needs a broadcast). The mined transaction bytes are in `sale_tx.hex`, and `verify payment` re-checks the payment with the published key in `viewing_keys.json`.
 
 Roles (`STATE=state OFF=10`):
 
@@ -44,9 +44,10 @@ The seller's checks run on the PCZT effects (ciphertexts and nullifiers), not on
 
 - With the acct6 FVK as holder: hop 0 and hop 1 successors valid, `R3 holder opens current carrier: yes, unspent=true`.
 - With the acct3 (seller) FVK as holder: `VERIFY FAIL: holder cannot open current carrier`.
-- `verify.sh` re-checks this package.
+- `verify.sh` re-checks this package and the payment (`verify payment`), using `viewing_keys.json`.
 
 ## Not covered
 
-- The PCZT is not published here. Its plaintext output fields still include the buyer's change note. Redacting those before handing the PCZT to the seller is a follow-up.
-- Unverified: a seller who modifies the effects after the buyer signed should fail extraction, because the buyer's spend signature covers the shielded sighash. This was not tested.
+- The PCZT of this run is not published. Its plaintext output fields still included the buyer's change note. Full redaction was added and tested on 2026-10-02 (`../testnet-2026-10-02/`, with a redacted example PCZT).
+- A seller who modifies the effects after the buyer signed fails extraction: tested on 2026-10-02 (`SighashMismatch`, DRY).
+- A run with separately held seeds is still pending.
