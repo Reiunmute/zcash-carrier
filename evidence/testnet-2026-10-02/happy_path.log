@@ -1,0 +1,21 @@
+### A. old seller acct3 lists a carrier it already sold (expect REFUSED)
+error: REFUSED: the carrier is already spent
+
+### B. happy path: seller acct6, buyer vault acct7
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+LISTED item #1 hop 2 price 10000 zats expiry 4434720 carrier cmx 5cb2cdaab67c.. in <SALE_DIR>/listing.json
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+  verified from chain: item #1 hop 2, carrier 5cb2cdaab67c.. held by the listed vault key, unspent
+  attempt 1: binding not satisfied, rebuilding
+  attempt 2: binding not satisfied, rebuilding
+  attempt 3: binding not satisfied, rebuilding
+  attempt 4: binding not satisfied, rebuilding
+  attempt 5: bound ok, carrier action 1, funding action 0
+  pczt expiry_height 4433741
+  proving key 1.0s, proof 0.7s
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/sale.pczt (14877 bytes), carrier action 1, pays 10000 zats
+  checks ok: carrier unspent, listing open, expiry 4433741 (tip 4433720), branch 37a5165b, 3 actions, carrier spend in action 1, payment 10000 zats
+  extracted tx 6b3c3425c1bece0464477dde282d02a51d098c3c9bbda9a7acd1d210e02ec49d: 3 actions, 12322 bytes, successor cmx 0ed490cb28eb..
+SALE-ACCEPT DRY 6b3c3425c1bece0464477dde282d02a51d098c3c9bbda9a7acd1d210e02ec49d (not broadcast, bytes in sale_dry_tx.bin)

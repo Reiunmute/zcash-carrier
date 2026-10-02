@@ -1,0 +1,33 @@
+### C. seller edits the payment ciphertext after signing (expect extract refused)
+  seller-tamper extract refused: SighashMismatch
+SALE-ACCEPT TAMPER TEST done, nothing broadcast
+
+### D. buyer pays 9000 against a 10000 listing
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+SALE-BUY wrote <SALE_DIR>/t_price.pczt (14877 bytes), carrier action 2, pays 9000 zats
+error: REFUSED: payment 9000 zats != listed price 10000
+
+### E. expired PCZT
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+SALE-BUY wrote <SALE_DIR>/t_exp.pczt (14877 bytes), carrier action 0, pays 10000 zats
+error: REFUSED: PCZT expired or about to (expiry_height 4433641, tip 4433721)
+
+### F. PCZT valid for 100 blocks (over the 40-block cap)
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+SALE-BUY wrote <SALE_DIR>/t_ttl.pczt (14877 bytes), carrier action 2, pays 10000 zats
+error: REFUSED: PCZT expiry_height 4433822 is past the listing expiry 4434720 or tip + 40
+
+### G. listing already expired (buyer side)
+error: listing expired at 1 (tip 4433721)
+
+### G2. listing expired after the buyer built (seller side)
+error: REFUSED: listing expired at 1 (tip 4433721)
+
+### H. listing names a different carrier commitment
+error: REFUSED: the listing does not match the verified current carrier
+
+### H2. listing vault key swapped for the old holder acct3
+error: holder cannot open current carrier
+
+### I. a different seller key tries to accept
+error: this listing is not for SELLER_ACCT's vault
