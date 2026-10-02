@@ -13,15 +13,15 @@
 //!                     appeared on chain. A valid chain whose current carrier is already spent is
 //!                     reported as SPENT, not as held.
 //!
-//! Trust: chain data comes from one lightwalletd (`LWD`). We check that returned txids match,
-//! that block ranges are hash-linked, and that full txs agree with the compact data they were
-//! indexed from. That does not validate proof of work. `cross_check` compares block hashes with
-//! a second server (`LWD2`) when one is configured.
+//! Trust: chain data comes from lightwalletd (`LWD`). We check that returned txids match, that
+//! block ranges are hash-linked, and that full txs agree with the compact data they were indexed
+//! from. With `LWD2`, every compact block in the scanned range (txids and Ironwood actions) and
+//! every fetched transaction must be identical on both servers, so one server cannot hide a spend
+//! the other serves. None of this validates proof of work.
 use crate::*;
 use anyhow::{anyhow, bail, Result};
 use orchard::keys::FullViewingKey;
 use std::collections::{BTreeSet, HashMap};
-use zcash_client_backend::proto::service::BlockId;
 use zcash_primitives::transaction::Transaction;
 
 /// Where a nullifier was revealed, as indexed from compact blocks.
@@ -35,18 +35,49 @@ pub struct NfHit {
 
 pub struct Chain {
     pub c: Client,
+    /// Second, independent server (`LWD2`). When set, all chain data is compared with it.
+    c2: Option<(Client, String)>,
     nf_index: HashMap<[u8; 32], NfHit>,
+    pub from: u64,
     pub to: u64,
-    /// Heights of every block whose data a verdict relied on (for `cross_check`).
+    /// Heights of every block whose data a verdict relied on.
     pub used_heights: BTreeSet<u64>,
+    txs_compared: usize,
+}
+
+/// The parts of a compact block a verdict depends on: hash links, txids and Ironwood actions.
+fn block_view(b: &zcash_client_backend::proto::compact_formats::CompactBlock) -> (u64, Vec<u8>, Vec<u8>, Vec<(Vec<u8>, Vec<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>)>)>) {
+    let txs = b
+        .vtx
+        .iter()
+        .map(|t| (t.txid.clone(), t.ironwood_actions.iter().map(|a| (a.nullifier.clone(), a.cmx.clone(), a.ephemeral_key.clone(), a.ciphertext.clone())).collect()))
+        .collect();
+    (b.height, b.hash.clone(), b.prev_hash.clone(), txs)
 }
 
 impl Chain {
-    /// Indexes every Ironwood nullifier revealed in `from..=tip`.
+    /// Indexes every Ironwood nullifier revealed in `from..=tip`. With `LWD2`, the range ends at the
+    /// lower of the two tips and every block must be identical on both servers.
     pub async fn index(mut c: Client, from: u64) -> Result<Self> {
-        let to = tip(&mut c).await?;
+        let mut c2 = match std::env::var("LWD2") {
+            Ok(url) => Some((connect_url(&url).await?, url)),
+            Err(_) => None,
+        };
+        let mut to = tip(&mut c).await?;
+        if let Some((c2, _)) = c2.as_mut() {
+            to = to.min(tip(c2).await?);
+        }
+        let bs = blocks(&mut c, from, to).await?;
+        if let Some((c2, url)) = c2.as_mut() {
+            let bs2 = blocks(c2, from, to).await?;
+            for (a, b) in bs.iter().zip(&bs2) {
+                if block_view(a) != block_view(b) {
+                    bail!("cross-check: {url} serves different data than {} at height {}", lwd_url(), a.height);
+                }
+            }
+        }
         let mut nf_index = HashMap::new();
-        for b in blocks(&mut c, from, to).await? {
+        for b in bs {
             for tx in &b.vtx {
                 for (i, a) in tx.ironwood_actions.iter().enumerate() {
                     let nf: [u8; 32] = a.nullifier.clone().try_into().map_err(|_| anyhow!("compact nullifier length"))?;
@@ -58,12 +89,22 @@ impl Chain {
                 }
             }
         }
-        Ok(Chain { c, nf_index, to, used_heights: BTreeSet::from([to]) })
+        Ok(Chain { c, c2, nf_index, from, to, used_heights: BTreeSet::from([to]), txs_compared: 0 })
     }
 
     pub async fn tx(&mut self, txid: &str) -> Result<(Transaction, u64)> {
         let (t, h) = get_tx(&mut self.c, txid).await?;
         let h = h.ok_or_else(|| anyhow!("{txid} unmined"))?;
+        if let Some((c2, url)) = self.c2.as_mut() {
+            let (t2, h2) = get_tx(c2, txid).await?;
+            let (mut a, mut b) = (vec![], vec![]);
+            t.write(&mut a)?;
+            t2.write(&mut b)?;
+            if h2 != Some(h) || a != b {
+                bail!("cross-check: {url} serves tx {txid} differently (height {h2:?} vs {h})");
+            }
+            self.txs_compared += 1;
+        }
         self.used_heights.insert(h);
         Ok((t, h))
     }
@@ -86,29 +127,24 @@ impl Chain {
     }
 }
 
-/// Compares block hashes at every height a verdict used with a second lightwalletd (`LWD2`).
-/// Prints the trust basis either way.
+/// Prints what the verdict's chain data rests on. The comparison itself happens in `Chain::index`
+/// and `Chain::tx`, which fail on any difference between the two servers.
 pub async fn cross_check(ch: &mut Chain) -> Result<()> {
-    let Ok(url2) = std::env::var("LWD2") else {
-        println!("trust: chain data from one lightwalletd ({}), not cross-checked (set LWD2)", lwd_url());
-        return Ok(());
-    };
-    let mut c2 = connect_url(&url2).await?;
-    let tip2 = tip(&mut c2).await?;
-    // The two tips can differ by a block or two. Compare a recent height both servers have.
-    let recent = ch.to.min(tip2).saturating_sub(3);
-    let mut heights: BTreeSet<u64> = ch.used_heights.iter().copied().filter(|h| *h < ch.to).collect();
-    heights.insert(recent);
-    for h in &heights {
-        let a = ch.c.get_block(BlockId { height: *h, hash: vec![] }).await?.into_inner().hash;
-        let b = c2.get_block(BlockId { height: *h, hash: vec![] }).await?.into_inner().hash;
-        if a != b {
-            bail!("cross-check: {url2} disagrees with {} at height {h}", lwd_url());
-        }
+    match &ch.c2 {
+        None => println!("trust: chain data from one lightwalletd ({}), not cross-checked (set LWD2)", lwd_url()),
+        Some((_, url)) => println!(
+            "trust: compact blocks {}..={} and {} full tx(s) identical on {} and {url}",
+            ch.from,
+            ch.to,
+            ch.txs_compared,
+            lwd_url()
+        ),
     }
-    println!("trust: block hashes at {} height(s) match between {} and {url2}", heights.len(), lwd_url());
     Ok(())
 }
+
+/// Artwork payload v0 (docs/SPEC.md): 48-byte palette + 338 bytes of 4-bit pixels.
+pub const ART_V0_LEN: usize = 386;
 
 pub struct Issued {
     pub num: u32,
@@ -139,6 +175,7 @@ pub async fn issuance_set(ch: &mut Chain, col: &Collection) -> Result<IssuanceSe
     let mut expect_rho: Option<[u8; 32]> = None; // successor rho the next sequence note must have
     let mut finalized = false;
     let mut sealed = false;
+    let mut step: u32 = 0;
     loop {
         let (tx, h) = ch.tx(&txid).await?;
         // Sequence notes the issuer holds (incoming key), plus a FINAL sent to the collection's seal
@@ -158,6 +195,11 @@ pub async fn issuance_set(ch: &mut Chain, col: &Collection) -> Result<IssuanceSe
         if seq.note.value().inner() != 0 {
             bail!("R1: sequence note in {txid} has value {}", seq.note.value().inner());
         }
+        // Canonical sequence memos: empty payload, step counter 0, 1, 2, ... in `hop`; SEQ has num 0.
+        if !sm.art.is_empty() || sm.hop != step || (sm.kind == K_SEQ && sm.num != 0) {
+            bail!("R1: non-canonical sequence memo in {txid} (step {}, expected {step}, num {}, payload {}B)", sm.hop, sm.num, sm.art.len());
+        }
+        step = step.checked_add(1).ok_or_else(|| anyhow!("R1: sequence too long"))?;
         if let Some(r) = expect_rho {
             if !(seq.note.rho().to_bytes() == r && seq.spent_nf == r) {
                 bail!("R1: sequence successor in {txid} not bound in the same action");
@@ -170,13 +212,17 @@ pub async fn issuance_set(ch: &mut Chain, col: &Collection) -> Result<IssuanceSe
                 continue;
             }
             let v = f.note.value().inner();
-            if v != 0 || m.hop != 0 {
-                println!("R1 REJECT carrier #{} in {}..: value {v} hop {} (both must be 0)", m.num, &txid[..12], m.hop);
+            if v != 0 || m.hop != 0 || m.num == 0 || m.art.len() != ART_V0_LEN {
+                println!("R1 REJECT carrier #{} in {}..: value {v} hop {} art {}B (need value 0, hop 0, item >= 1, {ART_V0_LEN}B v0 art)", m.num, &txid[..12], m.hop, m.art.len());
                 continue;
             }
             items.push(Issued { num: m.num, cmx: f.cmx, art: m.art.clone(), txid: txid.clone(), height: h, action: f.action });
         }
         if sm.kind == K_FINAL {
+            // FINAL names the number of items issued; every item number is in 1..=that.
+            if sm.num as usize != items.len() || items.iter().any(|i: &Issued| i.num > sm.num) {
+                bail!("R1: FINAL in {txid} says {} items, the sequence issued {}", sm.num, items.len());
+            }
             finalized = true;
             sealed = seq.note.recipient() == seal;
             break;

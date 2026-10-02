@@ -43,3 +43,15 @@ Case C answers the item left unverified on 2026-09-30: a transaction edited afte
 
 - Buyer and seller still derive from one local seed. The code now supports separate seeds (`STATE` per party, `SALE_DIR` for the exchanged files), but a separate-seed run needs funding on a second seed and therefore a broadcast. Pending approval.
 - Chain data came from one lightwalletd (`testnet.zec.rocks`). `LWD2` cross-checking is implemented, but no independent native-gRPC testnet server was reachable on 2026-10-02 (ECC's endpoint timed out; ChainSafe serves grpc-web only).
+
+## Re-run after the Codex re-review (`rerun_after_rereview.log`)
+
+The re-review (`docs/research/codex-review-2026-10-02-rereview.md`) counted 3 of the 14 first-review findings fixed and 11 partly fixed. Code-level follow-ups made the same day, all re-tested here (DRY):
+- **Listing version binding**: the buyer writes a listing id (BLAKE2b-256 of the listing) into the PCZT's global proprietary field, and the seller refuses any other value. Case J: a listing changed after the buyer built is refused.
+- **Exact shape**: the seller accepts exactly 3 Actions, the CLI sale shape.
+- **Funding liveness**: the buyer's nullifier scan starts no later than the funding note's height.
+- **Bounded input and checked heights** on the sale and verify paths (the older issuance subcommands are unchanged).
+- **`LWD2` compares content**: every compact block in the scanned range (txids and Ironwood actions) and every fetched transaction must be identical on both servers. Case K exercises this code path with the same host as both servers, which is not an independent check.
+- **R1 canonical memos**: empty sequence payloads, a step counter, FINAL naming the item count, 386-byte v0 artwork, item numbers from 1.
+
+All of cases A to K behave as expected.

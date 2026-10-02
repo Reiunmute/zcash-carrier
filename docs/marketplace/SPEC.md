@@ -90,7 +90,8 @@ Accept checks (as implemented in `carrier sale-accept` on 2026-10-02):
 - the carrier is still unspent, and the listing has not expired
 - PCZT `expiry_height` is at least tip + 3, at most the listing expiry, and at most tip + 40
 - the consensus branch id is the current one
-- the PCZT has only an Ironwood bundle, with at most 16 Actions
+- the PCZT carries the listing id of this exact listing version in its global proprietary field (added after the Codex re-review)
+- the PCZT has only an Ironwood bundle, with exactly the sale shape's Action count (3 in the CLI, which has no record outputs yet)
 - the carrier nullifier is spent in exactly one Action
 - outputs to the listing's pay address, decrypted from the effects, sum exactly to the price (checked addition)
 
@@ -102,10 +103,10 @@ The seller must be online for steps 2 and 6. An open tab handles both automatica
 
 As implemented in `carrier sale-buy` on 2026-10-02, the buyer clears:
 - on its funding spends: FVK, witness, ZIP-32 derivation, recipient, value, rho, rseed, alpha (with alpha and the public `rk`, anyone could recover the buyer's `ak` and link its PCZTs), proprietary fields
-- on every output it created (successor, payment, change, records): recipient, value, rseed, `ock`, ZIP-32 derivation, user address, proprietary fields
+- on every output it created (successor, payment, change; and the record outputs once P4 adds them): recipient, value, rseed, `ock`, ZIP-32 derivation, user address, proprietary fields
 - on every Action: value randomness (`rcv`) and dummy spend keys
 
-The successor and the records use the buyer's own OVK, so the seller cannot recover them from chain. Extraction still succeeds after this redaction (tested 2026-10-02). A self-check searches the serialized PCZT for the buyer's FVK, funding-note rho and rseed, and the buyer's addresses, and refuses to post if any is found.
+The successor and the records use the buyer's own OVK, so the seller cannot recover them from chain. Extraction still succeeds after this redaction (tested 2026-10-02 on the three-output CLI sale). A self-check searches the serialized PCZT for the buyer's FVK, funding-note rho and rseed, and the buyer's addresses, and refuses to post if any is found.
 
 ### 3.4 Race, reservation, expiry and the free option
 
@@ -113,7 +114,7 @@ The successor and the records use the buyer's own OVK, so the seller cannot reco
 - **One active reservation per listing.** The seller's tab accepts the first valid PCZT and does not disclose to further buyers until it is mined or has expired. Later intents are told the listing is reserved. This avoids buyers depositing and proving for a sale that cannot happen.
 - PCZTs carry `expiry_height`. Default: tip + 20 (about 25 minutes); the seller refuses more than tip + 40. The order book drops expired PCZTs.
 - **The free option is real.** Until expiry, the seller alone decides whether to broadcast. The buyer can try to cancel by spending its deposit note to itself, but a cancellation takes effect only once it is mined, and the seller can still broadcast first and win the nullifier race. The UI says this plainly. It is inherent to a protocol where one party signs last. Short expiries bound it.
-- Griefing (abandoned intents, spam PCZTs) is bounded by proof of work, per-listing caps, reservation and expiry. No funds are at risk.
+- Griefing (abandoned intents, spam PCZTs) is bounded by proof of work, per-listing caps, reservation and expiry. The buyer's principal is never at risk: either the sale completes atomically or the deposit stays the buyer's. Fees, deposit lockup time and price risk remain.
 
 ### 3.5 Marketplace fee (option, untested)
 
@@ -160,7 +161,7 @@ Losing browser storage loses nothing, provided the chain and a lightwalletd are 
 - Subresource Integrity on every script; strict CSP; no third-party scripts or analytics.
 - COOP `same-origin` and COEP `require-corp` on every page (also needed for multithreaded WASM).
 - Keys live in memory only. A CI test asserts that no request body ever contains key material.
-- Everything received from the other party or the server is size-capped and parsed with checked arithmetic; no panics on untrusted input (as in the 2026-10-02 CLI).
+- Everything received from the other party or the server is size-capped and parsed with checked arithmetic. The 2026-10-02 CLI does this on the sale and verify paths; the browser code must do it everywhere.
 - Precedent: in June 2026 a browser-wallet marketplace sent users' private keys to its server and wallets were drained (ZecBit whitepaper p.176, unverified).
 
 ### 6.2 Chain data: what is trusted
@@ -170,7 +171,7 @@ Every verdict rests on chain data served by lightwalletd. The verifier (since 20
 - requires block ranges to be contiguous and hash-linked
 - requires a full spend transaction to match the compact block it was indexed from
 - refuses duplicate nullifiers in served data
-- cross-checks block hashes at every height a verdict used with a second server (`LWD2`)
+- with a second server (`LWD2`), requires every compact block in the scanned range and every fetched transaction to be identical on both (strengthened after the Codex re-review; comparing block hashes alone could not detect a hidden spend)
 
 None of this validates proof of work. A colluding pair of servers could still serve a false view. Stage 1 therefore:
 - uses two independent servers, ours and one third-party operator; a "verified" badge requires both to agree, and the UI shows the trust basis
@@ -275,3 +276,18 @@ Mainnet, WalletConnect, connect with wallets other than Noir (any wallet can sti
 
 - Public listings without FVKs, with disclosure only to a committed buyer; buyer-side redaction; FVK-only provenance in self-addressed memos; Action padding, anchor-age randomisation, no public sale times; browser code security, own lightwalletd, content moderation; per-listing pay address; prerequisites, decisions and acceptance tables.
 - Prior art: the note-chaining primitive was published first by ZecBit's NSCV (2026-09-20). Carrier's distinct contributions are the non-custodial atomic sale and a working implementation.
+
+## 15. Proposed changes for draft 4 (NOT approved)
+
+From the P5 measurement (`research/p5-action-counts-2026-10-02.md`) and the Codex re-review (`docs/research/codex-review-2026-10-02-rereview.md`). Draft 3 stays the approved baseline until Ryot approves these.
+
+| ID | Proposal | Why |
+|---|---|---|
+| X1 | 3-Action sale: put the vault record (4.2) in the successor carrier's memo and the account index record (4.3) in the change output's memo; keep a change output in every sale | 5 outputs means at least 5 Actions, which only 0.2% of testnet txs have; 3 Actions matches 2.6% and the CLI shape (P5) |
+| X2 | Fresh vault per acquisition: allocate the next never-used vault index (a counter recovered from account index records), not `hash(coll, num)` | the hash rule reuses a vault whose FVK was disclosed when the item was sold, so a re-bought item would be visible to the previous buyer |
+| X3 | Disclosure encoding: canonical length-prefixed `T` with domain `CarrierDisclosureV1`; sign `domain || T || H(payload)`; AAD carries version, message type, direction and a sequence number; single-use nonces with replay state | draft 3 leaves encodings, payload binding and replay open |
+| X4 | Disclosure gating: offer an optional proof of funds (the buyer shows its confirmed deposit note to the seller with a payment-disclosure proof) in addition to proof of work and caps | proof of work and per-listing caps still let a scraper take one disclosure from every listing |
+| X5 | Records: exact byte formats, zero value, versioned; accept an account index record only if the same tx moves a valid carrier to the named vault; reject duplicates and conflicts; cycle detection, hop and byte caps; recovery scans from a recorded birthday height and re-scans the last 100 blocks on reorg; freeze the exact bytes of `M` | prevents fake or cyclic records and makes seed recovery stable |
+| X6 | Reservation at intent: the seller grants one short lease (for example 30 minutes) before disclosing, renewable and idempotent; others wait | draft 3 reserved only after a valid PCZT, after other buyers had already deposited and proved |
+| X7 | Transaction lookups: memos need full transactions, which compact blocks do not carry. Fetch full transactions in privacy-sized batches through our relay, with decoys, and state the remaining leak until then | direct `GetTransaction` calls tell the server which item is being verified |
+| X8 | Trust: keep the content comparison of 6.2 across two independent servers, and add light-client header validation before any real value | the content check needs a second independent server, and neither check validates proof of work |

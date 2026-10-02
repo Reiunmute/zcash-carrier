@@ -318,6 +318,7 @@ name = "carrier"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake2b_simd",
  "group",
  "hex",
  "incrementalmerkletree",

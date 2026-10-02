@@ -47,10 +47,11 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | Attacks: double spend, forged successor, mint after FINAL | all rejected (node / verifier / verifier) | README table |
 | Artwork on chain | byte-identical rebuild | `scripts/render_from_chain.py` |
 | Verifier successor-validity rule | done 2026-09-30 (OPEN_ISSUES #7 closed) | `verify.sh` |
-| FINAL hard seal (unspendable address) | not done | OPEN_ISSUES #2 |
 | Atomic sale via PCZT | mined on testnet 2026-09-30 (CLI; one local seed, roles separated in code). Hardened and DRY-tested 2026-10-02: buyer verifies first, full redaction, 9 negative checks incl. seller tamper | `evidence/testnet-2026-09-30/`, `evidence/testnet-2026-10-02/`, `verify.sh` |
-| Codex review | 2026-10-02, 14 findings, all addressed (code, gate, docs, SPEC draft 3) | `docs/research/codex-review-2026-10-02.md` |
-| lightwalletd trust | one server. txid, hash-link and compact/full checks done; `LWD2` cross-check implemented, no independent second server reachable yet | OPEN_ISSUES #5 |
+| Codex review | first review 14 findings; re-review counted 3 fixed and 11 partly fixed. Code-level follow-ups done 2026-10-02; design-level items proposed as SPEC changes (section 15, not approved) | `docs/research/codex-review-2026-10-02.md`, `docs/research/codex-review-2026-10-02-rereview.md` |
+| lightwalletd trust | one server. txid, hash-link and compact/full checks done; `LWD2` content cross-check implemented, no independent second server reachable yet; no proof-of-work validation | OPEN_ISSUES #5 |
+| FINAL hard seal | implemented (`seal_address`, `SEAL=1`, R1 `sealed=`), not yet on chain | OPEN_ISSUES #2, `scripts/run_p9_p12.sh` |
+| P5 Action counts | measured 2026-10-02; proposal for a 3-Action sale | `research/p5-action-counts-2026-10-02.md` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
 | Marketplace SPEC | draft 3, **approved by Ryot 2026-10-02** with the default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
 | Web app | not started | none |

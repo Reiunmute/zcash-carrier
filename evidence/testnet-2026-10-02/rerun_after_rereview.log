@@ -1,0 +1,53 @@
+### A. former holder acct3 tries to list
+error: REFUSED: the carrier is already spent
+
+### B. happy path: seller acct6, buyer vault acct7
+LISTED item #1 hop 2 price 10000 zats expiry 4435146 carrier cmx 5cb2cdaab67c.. in <SALE_DIR>/listing.json
+  verified from chain: item #1 hop 2, carrier 5cb2cdaab67c.. held by the listed vault key, unspent
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/sale.pczt (14932 bytes), carrier action 2, pays 10000 zats
+  checks ok: carrier unspent, listing open, expiry 4434168 (tip 4434148), branch 37a5165b, 3 actions, carrier spend in action 2, payment 10000 zats
+SALE-ACCEPT DRY 8f1a693c79a5737582d283ef28acf48c6bc667ed00ba076bf348b51fc521c146 (not broadcast, bytes in sale_dry_tx.bin)
+
+### C. seller edits the payment ciphertext after signing
+  checks ok: carrier unspent, listing open, expiry 4434168 (tip 4434148), branch 37a5165b, 3 actions, carrier spend in action 2, payment 10000 zats
+  seller-tamper extract refused: SighashMismatch
+SALE-ACCEPT TAMPER TEST done, nothing broadcast
+
+### D. buyer pays 9000 against 10000
+  verified from chain: item #1 hop 2, carrier 5cb2cdaab67c.. held by the listed vault key, unspent
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/t_price.pczt (14932 bytes), carrier action 2, pays 9000 zats
+error: REFUSED: payment 9000 zats != listed price 10000
+
+### E. expired PCZT
+  verified from chain: item #1 hop 2, carrier 5cb2cdaab67c.. held by the listed vault key, unspent
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/t_exp.pczt (14932 bytes), carrier action 2, pays 10000 zats
+error: REFUSED: PCZT expired or about to (expiry_height 4434068, tip 4434148)
+
+### F. PCZT valid for 100 blocks
+  verified from chain: item #1 hop 2, carrier 5cb2cdaab67c.. held by the listed vault key, unspent
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/t_ttl.pczt (14932 bytes), carrier action 0, pays 10000 zats
+error: REFUSED: PCZT expiry_height 4434249 is past the listing expiry 4435146 or tip + 40
+
+### G. listing already expired, buyer side
+error: listing expired at 1 (tip 4434148)
+
+### H. listing names a different carrier commitment
+error: REFUSED: the listing does not match the verified current carrier
+
+### I. a different seller key tries to accept
+error: this listing is not for SELLER_ACCT's vault
+
+### J. listing changed after the buyer built (price raised to 20000)
+error: REFUSED: PCZT was not built against this listing version
+
+### K. LWD2 cross-check code path (second server = same host, not independent)
+trust: compact blocks 4416732..=4434148 and 7 full tx(s) identical on https://testnet.zec.rocks:443 and https://testnet.zec.rocks:443
+LISTED item #1 hop 2 price 10000 zats expiry 4435148 carrier cmx 5cb2cdaab67c.. in <SALE_DIR>/l_lwd2.json

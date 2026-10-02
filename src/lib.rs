@@ -88,6 +88,25 @@ pub fn decode_memo(m: &[u8; 512]) -> Option<Memo> {
     })
 }
 
+// ---------- bounded input ----------
+/// Largest file this crate reads from another party or a published package.
+pub const MAX_FILE_BYTES: u64 = 1 << 20;
+
+/// Reads at most `MAX_FILE_BYTES` (checked while reading, not before, so a growing file cannot
+/// slip past the limit).
+pub fn read_capped(p: &std::path::Path) -> Result<Vec<u8>> {
+    use std::io::Read;
+    let mut buf = vec![];
+    std::fs::File::open(p)
+        .with_context(|| p.display().to_string())?
+        .take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut buf)?;
+    if buf.len() as u64 > MAX_FILE_BYTES {
+        bail!("{} is over the {MAX_FILE_BYTES} byte limit", p.display());
+    }
+    Ok(buf)
+}
+
 // ---------- FINAL hard seal (OPEN_ISSUES #2) ----------
 pub const SEAL_DOMAIN: &str = "carrier:final-seal:v1";
 const SEAL_DIVERSIFIER: &[u8; 11] = b"carrierseal";

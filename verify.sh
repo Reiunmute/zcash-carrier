@@ -75,13 +75,15 @@ want "$out" "R3 holder opens current carrier: yes, unspent=true"
 want "$out" "VERIFY HELD: item #1"
 
 echo "== same package without a holder key"
-run 5 $V "$E/collection.json" 4416690 "$E2/package_item1_sale.json"
+run 5 env -u HOLDER_FVK $V "$E/collection.json" 4416690 "$E2/package_item1_sale.json"
 want "$out" "VERIFY UNVERIFIED: item #1"
 
 echo "== 2026-09-30 sale payment (one tx carries the item and the payment)"
-run 0 $V payment "$SALE_TX" "$PAY" 10000
-want "$out" "PAYMENT 10000 zats"
-[ "$(tr -d '\n' < "$E2/sale_tx.hex" | wc -c | tr -d ' ')" -eq 24644 ] || fail "sale_tx.hex size changed"
+# Offline: parse the published bytes, check their txid and the payment from them; then require the
+# server's copy to be byte-identical and mined.
+run 0 $V payment-file "$E2/sale_tx.hex" "$SALE_TX" "$PAY" 10000
+want "$out" "PAYMENT 10000 zats to the given key in $E2/sale_tx.hex"
+want "$out" "identical to the server copy"
 
 echo "== artwork rebuilt from chain bytes"
 art=$(python3 scripts/render_from_chain.py 1 2)

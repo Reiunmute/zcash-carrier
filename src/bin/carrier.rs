@@ -450,8 +450,10 @@ async fn find_change(c: &mut Client, txid: &str, fvk: &FullViewingKey) -> Result
 // Each subcommand derives only the keys of its own role. Buyer and seller can run with different
 // STATE dirs (separate seeds); they exchange the listing and the PCZT through SALE_DIR.
 
-const MAX_FILE_BYTES: u64 = 1 << 20;
-const MAX_ACTIONS: usize = 16;
+/// Every CLI sale has 2 spends and 3 outputs, so exactly 3 Actions (marketplace SPEC 5, P5).
+const SALE_ACTIONS: usize = 3;
+/// PCZT global proprietary key carrying the listing id the buyer built against.
+const LISTING_KEY: &str = "carrier/listing-id/v1";
 /// Longest PCZT validity a seller accepts, in blocks past the current tip (SPEC 3.4).
 const MAX_PCZT_TTL: u64 = 40;
 /// Total ZEC supply in zats; any price above it is invalid input.
@@ -498,18 +500,15 @@ fn env_u32(k: &str, default: u32) -> Result<u32> {
     std::env::var(k).map(|v| v.parse::<u32>().with_context(|| k.to_string())).unwrap_or(Ok(default))
 }
 
-/// Reads a file received from the other party, refusing anything over `MAX_FILE_BYTES`.
-fn read_capped(p: &std::path::Path) -> Result<Vec<u8>> {
-    let n = fs::metadata(p).with_context(|| p.display().to_string())?.len();
-    if n > MAX_FILE_BYTES {
-        bail!("{} is {n} bytes, over the {MAX_FILE_BYTES} byte limit", p.display());
-    }
-    Ok(fs::read(p)?)
-}
-
 fn pay_address(l: &Listing) -> Result<orchard::Address> {
     let raw: [u8; 43] = hex::decode(&l.seller_pay_addr)?.try_into().map_err(|_| anyhow!("pay address length"))?;
     Option::from(orchard::Address::from_raw_address_bytes(&raw)).ok_or_else(|| anyhow!("pay address"))
+}
+
+/// Identifies one version of a listing: BLAKE2b-256 of its JSON encoding.
+fn listing_id(l: &Listing) -> Result<[u8; 32]> {
+    let h = blake2b_simd::Params::new().hash_length(32).personal(b"CarrierListing01").hash(&serde_json::to_vec(l)?);
+    Ok(h.as_bytes().try_into()?)
 }
 
 fn contains(hay: &[u8], needle: &[u8]) -> bool {
@@ -531,10 +530,11 @@ fn decrypt_actions<T: orchard::bundle::Authorization>(b: &orchard::Bundle<T, zca
 
 /// Runs R1 to R3 for `pkg` with `holder` (from the collection's genesis height) and returns the
 /// chain index, the held carrier and its hop number. Anything other than HELD is refused.
-async fn verified_carrier(mut c: Client, col: &Collection, pkg: &Package, holder: &FullViewingKey) -> Result<(Chain, Held, u32)> {
+/// `from` lowers the scan start, so notes older than the genesis (a funding note) are covered too.
+async fn verified_carrier(mut c: Client, col: &Collection, pkg: &Package, holder: &FullViewingKey, from: Option<u64>) -> Result<(Chain, Held, u32)> {
     let (_, gh) = get_tx(&mut c, &col.genesis_txid).await?;
     let gh = gh.ok_or_else(|| anyhow!("genesis tx unmined"))?;
-    let mut ch = Chain::index(c, gh).await?;
+    let mut ch = Chain::index(c, from.map_or(gh, |f| f.min(gh))).await?;
     let set = issuance_set(&mut ch, col).await?;
     match verify_item(&mut ch, col, &set, pkg, Some(holder)).await? {
         Verdict::Held { cur, txid, height, hop } => {
@@ -553,7 +553,7 @@ async fn sale_list(c: Client) -> Result<()> {
     let pkg: Package = load(&std::env::var("PACKAGE").unwrap_or_else(|_| "package_item1.json".into()))?;
     let (seller, pay_acct) = (acct(env_u32("SELLER_ACCT", 3)?)?, acct(env_u32("PAY_ACCT", 5)?)?);
     // The seller lists only what the verifier says it holds.
-    let (ch, held, hop) = verified_carrier(c, &col, &pkg, &seller.fvk).await?;
+    let (ch, held, hop) = verified_carrier(c, &col, &pkg, &seller.fvk, None).await?;
     let price = env_u64("PRICE", 10_000)?;
     if price == 0 || price > MAX_MONEY {
         bail!("PRICE must be between 1 and {MAX_MONEY} zats");
@@ -584,10 +584,16 @@ async fn sale_list(c: Client) -> Result<()> {
 /// PCZT; PCZT_TTL=<blocks> sets its validity (default 20).
 async fn sale_buy(c: Client) -> Result<()> {
     use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, prover::Prover, redactor::Redactor, signer::Signer, tx_extractor::TransactionExtractor};
+    let mut c = c;
     let l: Listing = serde_json::from_slice(&read_capped(&listing_path())?)?;
+    let lid = listing_id(&l)?;
     let vault = fvk_from_hex(&l.vault_fvk)?;
+    let (a0, bv) = (acct(0)?, acct(env_u32("BUYER_VAULT_ACCT", 6)?)?);
+    let fund_tx = std::env::var("FUND_TX").map_err(|_| anyhow!("set FUND_TX to the tx holding the buyer's funding note"))?;
+    let (fund, fh) = find_change(&mut c, &fund_tx, &a0.fvk).await?;
     // Never trust the listing's note: verify the current carrier from chain with the listed key.
-    let (mut ch, held, hop) = verified_carrier(c, &l.collection, &l.package, &vault).await?;
+    // The scan also starts no later than the funding note, so its liveness check is complete.
+    let (mut ch, held, hop) = verified_carrier(c, &l.collection, &l.package, &vault, Some(fh)).await?;
     let tip_h = ch.to;
     if tip_h >= l.expiry {
         bail!("listing expired at {} (tip {tip_h})", l.expiry);
@@ -599,9 +605,6 @@ async fn sale_buy(c: Client) -> Result<()> {
     let ccmx = arr32(&held.cmx)?;
     println!("  verified from chain: item #{} hop {hop}, carrier {}.. held by the listed vault key, unspent", l.item, &held.cmx[..12]);
 
-    let (a0, bv) = (acct(0)?, acct(env_u32("BUYER_VAULT_ACCT", 6)?)?);
-    let fund_tx = std::env::var("FUND_TX").map_err(|_| anyhow!("set FUND_TX to the tx holding the buyer's funding note"))?;
-    let (fund, fh) = find_change(&mut ch.c, &fund_tx, &a0.fvk).await?;
     if ch.spent_at(&fund.note.nullifier(&a0.fvk).to_bytes()).is_some() {
         bail!("the funding note in {fund_tx} is already spent");
     }
@@ -626,7 +629,7 @@ async fn sale_buy(c: Client) -> Result<()> {
         bail!("witness anchors differ");
     }
     // EXPIRED=1: target far enough in the past that the expiry height is below the tip.
-    let target = if std::env::var("EXPIRED").is_ok() { tip_h.checked_sub(100).ok_or_else(|| anyhow!("tip too low"))? } else { tip_h + 1 };
+    let target = if std::env::var("EXPIRED").is_ok() { tip_h.checked_sub(100) } else { tip_h.checked_add(1) }.ok_or_else(|| anyhow!("bad tip height"))?;
     let target = BlockHeight::from_u32(u32::try_from(target)?);
     let expiry = target + env_u32("PCZT_TTL", 20)?;
     let mut built = None;
@@ -660,7 +663,10 @@ async fn sale_buy(c: Client) -> Result<()> {
         }
         let (pai, xai) = (idx(m.output_action_index(1))?, idx(m.output_action_index(2))?);
         println!("  attempt {attempt}: bound ok, carrier action {cai}, funding action {fai}");
-        built = Some((Creator::build_from_parts(res.pczt_parts).ok_or_else(|| anyhow!("tx version not PCZT-compatible"))?, cai, fai, pai, xai));
+        let p = Creator::build_from_parts(res.pczt_parts).ok_or_else(|| anyhow!("tx version not PCZT-compatible"))?;
+        // Bind the PCZT to the listing version it was built against (not signed; checked by the seller).
+        let p = pczt::roles::updater::Updater::new(p).update_global_with(|mut g| g.set_proprietary(LISTING_KEY.into(), lid.to_vec())).finish();
+        built = Some((p, cai, fai, pai, xai));
         break;
     }
     let (p, cai, fai, pai, xai) = built.ok_or_else(|| anyhow!("binding not satisfied after {MAX_TRIES} tries"))?;
@@ -751,6 +757,10 @@ async fn sale_accept(c: Client, dry: bool) -> Result<()> {
     let nf = carrier.nullifier(&seller.fvk).to_bytes();
     let ch = Chain::index(c, l.carrier.height).await?;
     let tip_h = ch.to;
+    // 0. the PCZT was built against this exact listing version
+    if p.global().proprietary().get(LISTING_KEY).map(|v| v.as_slice()) != Some(&listing_id(&l)?[..]) {
+        bail!("REFUSED: PCZT was not built against this listing version");
+    }
     // 1. the carrier is still ours to sell, and the listing is still open
     if ch.spent_at(&nf).is_some() {
         bail!("REFUSED: the carrier is already spent");
@@ -760,14 +770,17 @@ async fn sale_accept(c: Client, dry: bool) -> Result<()> {
     }
     // 2. PCZT expiry: minable a few blocks from now, and no later than the listing or tip + MAX_PCZT_TTL
     let exp = *p.global().expiry_height() as u64;
-    if exp < tip_h + 3 {
+    let (soon, cap) = (tip_h.checked_add(3), tip_h.checked_add(MAX_PCZT_TTL));
+    let (Some(soon), Some(cap)) = (soon, cap) else { bail!("bad tip height") };
+    if exp < soon {
         bail!("REFUSED: PCZT expired or about to (expiry_height {exp}, tip {tip_h})");
     }
-    if exp > l.expiry || exp > tip_h + MAX_PCZT_TTL {
+    if exp > l.expiry || exp > cap {
         bail!("REFUSED: PCZT expiry_height {exp} is past the listing expiry {} or tip + {MAX_PCZT_TTL}", l.expiry);
     }
     // 3. network upgrade
-    let branch = u32::from(zcash_protocol::consensus::BranchId::for_height(&TEST_NETWORK, BlockHeight::from_u32(u32::try_from(tip_h + 1)?)));
+    let next = u32::try_from(tip_h.checked_add(1).ok_or_else(|| anyhow!("bad tip height"))?)?;
+    let branch = u32::from(zcash_protocol::consensus::BranchId::for_height(&TEST_NETWORK, BlockHeight::from_u32(next)));
     if *p.global().consensus_branch_id() != branch {
         bail!("REFUSED: consensus branch {:08x} != {branch:08x}", p.global().consensus_branch_id());
     }
@@ -778,8 +791,8 @@ async fn sale_accept(c: Client, dry: bool) -> Result<()> {
     // Checks below read the effects (ciphertexts, nullifiers), not the PCZT's plaintext fields.
     let fx = p.clone().into_effects().map_err(|e| anyhow!("effects: {e:?}"))?;
     let b = fx.ironwood_bundle().ok_or_else(|| anyhow!("REFUSED: no Ironwood bundle"))?;
-    if b.actions().len() > MAX_ACTIONS {
-        bail!("REFUSED: {} actions, more than {MAX_ACTIONS}", b.actions().len());
+    if b.actions().len() != SALE_ACTIONS {
+        bail!("REFUSED: {} actions, a sale has exactly {SALE_ACTIONS}", b.actions().len());
     }
     // 5. the carrier spend is in the tx
     let ai = b.actions().iter().position(|a| a.nullifier().to_bytes() == nf).ok_or_else(|| anyhow!("REFUSED: carrier spend not in PCZT"))?;

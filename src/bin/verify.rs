@@ -6,17 +6,42 @@
 //!   verify <collection.json> <from_height> [<package.json> [claimed_txid...]]   (HOLDER_FVK=<hex> for R3)
 //!   verify payment <txid> <fvk_hex> <expected_zats>
 //!   verify mined <txid>
+//!   verify payment-file <raw_tx_hex_file> <txid> <fvk_hex> <expected_zats>
 //!
 //! Exit codes: 0 held (or no package), 2 fail, 3 burned, 4 spent, 5 unverified (no holder key).
-use anyhow::{anyhow, Result};
-use carrier::verifier::{cross_check, issuance_set, paid_to, verify_item, Chain, Verdict};
+use anyhow::{anyhow, bail, Result};
+use carrier::verifier::{self, cross_check, issuance_set, paid_to, verify_item, Chain, Verdict};
 use carrier::*;
 use std::fs;
 
-const USAGE: &str = "usage: verify <collection.json> <from_height> [<package.json> [claimed_txid...]] | verify payment <txid> <fvk_hex> <expected_zats> | verify mined <txid>";
+const USAGE: &str = "usage: verify <collection.json> <from_height> [<package.json> [claimed_txid...]] | verify payment <txid> <fvk_hex> <expected_zats> | verify mined <txid> | verify payment-file <hex_file> <txid> <fvk_hex> <expected_zats>";
 
 fn load<T: serde::de::DeserializeOwned>(p: &str) -> Result<T> {
-    Ok(serde_json::from_str(&fs::read_to_string(p)?)?)
+    Ok(serde_json::from_slice(&read_capped(std::path::Path::new(p))?)?)
+}
+
+/// `verify payment-file`: parse published raw tx bytes offline, check their txid and the payment
+/// from those exact bytes, then require the server's copy to be byte-identical and mined.
+async fn payment_file(a: &[String]) -> Result<i32> {
+    let [file, txid, fvk, expected] = a else { return Err(anyhow!(USAGE)) };
+    let hex_str = String::from_utf8(read_capped(std::path::Path::new(file))?)?;
+    let raw = hex::decode(hex_str.trim())?;
+    let tx = zcash_primitives::transaction::Transaction::read(&raw[..], zcash_protocol::consensus::BranchId::Nu6_3)?;
+    if tx.txid().to_string() != *txid {
+        bail!("{file} hashes to {}, not {txid}", tx.txid());
+    }
+    let paid = verifier::paid_to(&tx, &fvk_from_hex(fvk)?)?;
+    let expected: u64 = expected.parse()?;
+    let mut c = connect().await?;
+    let (stx, h) = get_tx(&mut c, txid).await?;
+    let mut sraw = vec![];
+    stx.write(&mut sraw)?;
+    if sraw != raw {
+        bail!("server copy of {txid} differs from {file}");
+    }
+    let h = h.ok_or_else(|| anyhow!("{txid} unmined"))?;
+    println!("PAYMENT {paid} zats to the given key in {file} (txid {}.., identical to the server copy, mined at {h}; expected {expected})", &txid[..12]);
+    Ok(if paid == expected { 0 } else { 2 })
 }
 
 /// `verify payment`: does `txid` pay exactly `expected` zats to outputs `fvk` can decrypt?
@@ -36,6 +61,9 @@ async fn run() -> Result<i32> {
     let a: Vec<String> = std::env::args().collect();
     if a.get(1).map(String::as_str) == Some("payment") {
         return payment(&a[2..]).await;
+    }
+    if a.get(1).map(String::as_str) == Some("payment-file") {
+        return payment_file(&a[2..]).await;
     }
     if a.get(1).map(String::as_str) == Some("mined") {
         let txid = a.get(2).ok_or_else(|| anyhow!(USAGE))?;
