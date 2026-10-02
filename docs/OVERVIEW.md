@@ -184,7 +184,7 @@ All payments were between our own test keys. Testnet assets are never sold or of
 1. Browser network: streaming block ranges with Ironwood data over grpc-web.
 2. `FINAL` hard seal.
 3. A shared core crate that compiles for native and WebAssembly.
-4. The public web app, only after the marketplace spec (`docs/marketplace/SPEC.md`, draft 1) is approved.
+4. The public web app, only after the marketplace spec (`docs/marketplace/SPEC.md`, draft 2) is approved.
 
 ## 9. Check it yourself
 

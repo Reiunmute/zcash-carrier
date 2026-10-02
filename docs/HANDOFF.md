@@ -50,7 +50,7 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | FINAL hard seal (unspendable address) | not done | OPEN_ISSUES #2 |
 | Atomic sale via PCZT | proven on testnet 2026-09-30 (CLI, local key sets) | `evidence/testnet-2026-09-30/`, `verify.sh` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
-| Marketplace SPEC | draft 1, **awaiting Ryot's approval** | `docs/marketplace/SPEC.md` |
+| Marketplace SPEC | draft 2 (2026-10-01), **awaiting Ryot's approval**. Decisions D1 to D7 in section 10 | `docs/marketplace/SPEC.md` |
 | Web app | not started | none |
 | GitHub | `Reiunmute/zcash-carrier`, **private** | `git remote -v` |
 
@@ -174,7 +174,7 @@ Remember the multithreading requirements (see `research/stage1-checks/RESULTS.md
 
 ### Task 6. Web app. Only after Ryot approves `docs/marketplace/SPEC.md`
 
-Follow SPEC draft 1: pages, connect flow with a Noir derived signature, deposit, list, buy, accept.
+Follow the approved SPEC (draft 2 at the time of writing): pages, connect flow with a Noir derived signature, deposit, intent and private disclosure, buy, accept. Prerequisites P3 to P9 come first.
 
 Before any UI work, ask Ryot for design direction. His general preferences:
 - typography and reading order first

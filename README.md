@@ -64,7 +64,7 @@ The goal is an OpenSea-style public website: connect a wallet, see your items, l
 | Can a browser prove Ironwood Actions fast enough? | Yes. Multithreaded WASM on an M4 Pro: 1.9 s for 2 Actions, 3.6 s for 4 Actions. Single-thread: 11.9 s and 21.8 s. |
 | Can a browser reach testnet lightwalletd? | `zec.rocks` has no CORS. ChainSafe grpc-web works, and so does a small relay of our own. |
 
-The plan is [`docs/marketplace/SPEC.md`](docs/marketplace/SPEC.md) (draft 1, **not yet approved**). Stage 1 needs no wallet integration: keys and proofs stay in the user's browser, and the server keeps only a public order book. Stages 2 and 3 (Vizor support, Zcash WalletConnect) come later.
+The plan is [`docs/marketplace/SPEC.md`](docs/marketplace/SPEC.md) (draft 2, **not yet approved**). Stage 1 needs no wallet integration: keys and proofs stay in the user's browser, and the server keeps only a public order book. Stages 2 and 3 (Vizor support, Zcash WalletConnect) come later.
 
 ## Layout
 
@@ -78,7 +78,7 @@ scripts/claim_jino.py       testnet faucet claim (solves the faucet's sha256 PoW
 scripts/render_from_chain.py  rebuilds PNGs from verifier output, compares with source
 docs/SPEC.md                carrier format and verification rules R1 to R3
 docs/OPEN_ISSUES.md         known limits and the next tests (#7 is a verifier gap)
-docs/marketplace/SPEC.md    marketplace plan, draft 1
+docs/marketplace/SPEC.md    marketplace plan, draft 2
 docs/HANDOFF.md             state, decisions, next tasks for the next agent
 research/stage1-checks/     browser feasibility scripts and results
 evidence/                   public testnet artifacts (no spending keys)

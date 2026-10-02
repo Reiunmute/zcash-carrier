@@ -184,7 +184,7 @@ Ordinals가 가장 가까운 친척이라서, 닮은 점까지 포함해 꼼꼼�
 1. 브라우저 네트워크: Ironwood 데이터가 든 블록 범위를 grpc-web으로 스트리밍.
 2. `FINAL` 완전 봉인.
 3. 네이티브와 WebAssembly 양쪽으로 컴파일되는 공용 core crate.
-4. 공개 웹앱. 마켓 스펙(`docs/marketplace/SPEC.md`, draft 1)이 승인된 뒤에만 시작합니다.
+4. 공개 웹앱. 마켓 스펙(`docs/marketplace/SPEC.md`, draft 2)이 승인된 뒤에만 시작합니다.
 
 ## 9. 직접 확인하기
 
