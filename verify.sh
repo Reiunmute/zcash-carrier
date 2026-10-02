@@ -35,6 +35,17 @@ cargo test --release --quiet -p carrier-core >/dev/null || fail "carrier-core un
 if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
   cargo build --release --quiet -p carrier-core --target wasm32-unknown-unknown || fail "carrier-core does not build for wasm32"
   echo "   carrier-core builds for wasm32-unknown-unknown"
+  # The same functions called from JavaScript through wasm must match the native results.
+  if command -v node >/dev/null && [ -x "$HOME/.cargo/bin/wasm-bindgen" ]; then
+    cargo build --release --quiet -p carrier-wasm --target wasm32-unknown-unknown || fail "carrier-wasm build"
+    rm -rf out/wasmpkg
+    "$HOME/.cargo/bin/wasm-bindgen" --target nodejs --out-dir out/wasmpkg target/wasm32-unknown-unknown/release/carrier_wasm.wasm || fail "wasm-bindgen"
+    cargo run --release --quiet --example coreref > out/coreref.json || fail "coreref"
+    node crates/carrier-wasm/parity.cjs out/wasmpkg out/coreref.json >/dev/null || fail "wasm results differ from native"
+    echo "   wasm (JavaScript) and native results match"
+  else
+    echo "   node or wasm-bindgen missing: wasm parity check skipped"
+  fi
 else
   echo "   wasm32-unknown-unknown target not installed: wasm build skipped"
 fi

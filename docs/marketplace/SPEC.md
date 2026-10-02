@@ -203,7 +203,7 @@ Later: light-client header validation in the browser (proof-of-work and chain-wo
 - Multithreaded WASM: nightly Rust, `+atomics,+bulk-memory`, `wasm-bindgen-rayon`.
   - Measured on M4 Pro, 14 threads: ProvingKey 3.9 s once, 2 Actions 1.9 s, 4 Actions 3.6 s. Single-thread: 11.9 s and 21.8 s.
   - The padded sale (5 outputs plus spends, then padding) will be larger than 4 Actions. Measure after P5.
-- Not yet verified: streaming `GetBlockRange` over grpc-web, and Ironwood compact actions on ChainSafe (HANDOFF task 3).
+- Verified 2026-10-02: streaming `GetBlockRange` over grpc-web from ChainSafe, with Ironwood compact actions, in headless Chromium 151 from another origin (P6). Not yet verified: Firefox, Safari, ChainSafe rate limits.
 
 ## 9. Prerequisites before BUILD
 
@@ -214,8 +214,8 @@ Later: light-client header validation in the browser (proof-of-work and chain-wo
 | P3 | Redaction with extraction still succeeding; seller edit after buyer signature rejected; buyer verifies before paying | done 2026-10-02, DRY (`evidence/testnet-2026-10-02/`) |
 | P4 | Vault records and account index records (4.2, 4.3); verifier walking record pointers; seed-only recovery test | to do |
 | P5 | Measure the Ironwood Action-count distribution; padding and anchor-age rules | to do |
-| P6 | Browser network: grpc-web streaming and Ironwood compact data (HANDOFF task 3) | to do |
-| P7 | `carrier-core` crate for native and wasm32 (HANDOFF task 5) | done 2026-10-02 for formats, keys, decryption and rules R1 to R3 (bundle-based, no `zcash_primitives`); `verify.sh` builds it for wasm32. The PCZT sale path stays native until a wasm-capable C compiler is available for `secp256k1-sys` (pulled in by `zcash_primitives`) |
+| P6 | Browser network: grpc-web streaming and Ironwood compact data (HANDOFF task 3) | done 2026-10-02: ChainSafe streams `GetBlockRange` over grpc-web to a cross-origin browser (CORS ok), with Ironwood actions (`pool_types` empty or containing 4); 10,000 blocks in about 0.7 s in Chromium (`research/stage1-checks/RESULTS.md`). The relay now streams too, but needs range caps and rate limits before public use |
+| P7 | `carrier-core` crate for native and wasm32 (HANDOFF task 5) | done 2026-10-02 for formats, keys, decryption and rules R1 to R3 (bundle-based, no `zcash_primitives`); `verify.sh` builds it for wasm32 and checks that `carrier-wasm` called from JavaScript matches native results. The PCZT sale path stays native until a wasm-capable C compiler is available for `secp256k1-sys` (pulled in by `zcash_primitives`) |
 | P8 | Key derivation of 2.1 (collectibles account, vault index, collision rule) replacing the PoC `OFF` offsets | partly: `collectibles_seed` (HKDF, step 4) in `carrier-core::keys`; vault index allocation waits for proposal X2 |
 | P9 | FINAL hard seal (OPEN_ISSUES #2) | to do, needs a new test collection and broadcast approval |
 | P10 | Authenticated disclosure channel (3.2): HPKE messages bound to `T`, vault signature over `T` | partly: `vault_sign` / `vault_verify` (RedPallas, domain-separated) in `carrier-core::keys`; the encoding of `T` and HPKE wait for proposal X3 |

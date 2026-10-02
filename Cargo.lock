@@ -363,6 +363,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "carrier-wasm"
+version = "0.1.0"
+dependencies = [
+ "carrier-core",
+ "hex",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

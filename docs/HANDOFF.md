@@ -52,7 +52,8 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | lightwalletd trust | one server. txid, hash-link and compact/full checks done; `LWD2` content cross-check implemented, no independent second server reachable yet; no proof-of-work validation | OPEN_ISSUES #5 |
 | FINAL hard seal | implemented (`seal_address`, `SEAL=1`, R1 `sealed=`), not yet on chain | OPEN_ISSUES #2, `scripts/run_p9_p12.sh` |
 | P5 Action counts | measured 2026-10-02; proposal for a 3-Action sale | `research/p5-action-counts-2026-10-02.md` |
-| Core crate (P7) | `crates/carrier-core`: formats, keys, decryption, rules R1 to R3, vault signatures, collectibles seed. Builds for native and wasm32 (checked by `verify.sh`). PCZT path still native | `crates/carrier-core/` |
+| Core crate (P7) | `crates/carrier-core`: formats, keys, decryption, rules R1 to R3, vault signatures, collectibles seed. Builds for native and wasm32; `crates/carrier-wasm` exports pure functions, and `verify.sh` checks JavaScript results match native. PCZT path still native | `crates/carrier-core/`, `crates/carrier-wasm/` |
+| Browser network (P6) | grpc-web streaming with Ironwood actions verified on ChainSafe, relay streams | `research/stage1-checks/RESULTS.md` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
 | Marketplace SPEC | draft 3, **approved by Ryot 2026-10-02** with the default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
 | Web app | not started | none |
@@ -163,6 +164,8 @@ Record everything under `evidence/testnet-<date>/`.
 > 2026-10-02 (after the Codex review): the buyer runs R1 to R3 before paying, redaction covers every buyer field, the successor uses the buyer's OVK, the seller also checks listing expiry, PCZT expiry cap, carrier liveness, value pools and action count, and a seller who edits the tx after the buyer signed fails extraction. All DRY: `evidence/testnet-2026-10-02/README.md`. Still open: a run with separate seeds (needs a broadcast).
 
 ### Task 3. Browser network: streaming and Ironwood compact data
+
+> Status 2026-10-02: streaming works. ChainSafe grpc-web streams `GetBlockRange` to a cross-origin Chromium page with Ironwood actions; the relay (`research/stage1-checks/relay.mjs`) now streams as well. Results and numbers in `research/stage1-checks/RESULTS.md` (P6 section). Still open: decrypting and finding the carrier in the browser (needs the wasm tx parser, see Task 5), other browsers, rate limits.
 
 - Check `GetBlockRange` (server streaming) over grpc-web against `zcash-testnet.chainsafe.dev`.
 - Check that its compact blocks include `ironwood_actions`.

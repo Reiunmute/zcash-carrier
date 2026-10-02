@@ -70,3 +70,89 @@ These are real `fetch` calls from a page on another origin (Chromium). Script: `
 Still to verify:
 - Streaming calls (`GetBlockRange`) through grpc-web. Scanning needs them.
 - Whether ChainSafe's backend serves Ironwood compact actions.
+
+## P6, 2026-10-02: grpc-web streaming and Ironwood compact data
+
+**Result: yes. A browser streams `GetBlockRange` over grpc-web from ChainSafe directly, frames arrive incrementally, and the compact blocks carry Ironwood actions (`CompactTx.ironwood_actions`, tag 9). Our relay does the same against zec.rocks.**
+
+Same Mac mini as above. Read-only calls only (OPTIONS, `GetBlockRange`, `GetLatestBlock`). No transaction was sent.
+
+Protocol facts (from `zcash_client_backend-0.24.0/src/proto/{service,compact_formats}.rs`):
+- `BlockRange { start: BlockID = 1, end: BlockID = 2, pool_types: repeated PoolType = 3 }`, `BlockID.height = 1`.
+- `PoolType`: `SAPLING = 2`, `ORCHARD = 3`, `IRONWOOD = 4`. Empty `pool_types` means "all shielded pools, including Ironwood" (doc comment on `BlockRange`). Our Rust code (`src/lib.rs:228`) already sends `pool_types: vec![]`.
+- `CompactTx.ironwood_actions = 9` (type `CompactOrchardAction { nullifier = 1, cmx = 2, ephemeral_key = 3, ciphertext = 4 }`), separate from Orchard `actions = 6`. `ChainMetadata.ironwood_commitment_tree_size = 3`.
+
+Commands:
+
+```bash
+cd research/stage1-checks
+node stream_check.mjs                                                         # ChainSafe, 4425590..4425594, default pools
+node stream_check.mjs https://zcash-testnet.chainsafe.dev 4425590 4425594 4   # pool_types [IRONWOOD]
+node stream_check.mjs https://zcash-testnet.chainsafe.dev 4425590 4425594 3   # pool_types [ORCHARD]
+node stream_check.mjs https://zcash-testnet.chainsafe.dev 4424595 4425594     # 1,000 blocks
+node stream_check.mjs https://zcash-testnet.chainsafe.dev 4415595 4425594     # 10,000 blocks
+PORT=18767 node relay.mjs &                                                   # upstream https://testnet.zec.rocks:443
+node stream_check.mjs http://127.0.0.1:18767 [same ranges and pools]          # relay; stopped afterwards
+```
+
+Plus one headless Chromium run (`chrome-headless-shell` 151.0.7922.34 from the existing Playwright cache, page origin `http://127.0.0.1:18768`) that ran the same `fetch` + `ReadableStream` reader inside the page. That page was served by an inline `node -e` script. No file was kept for it.
+
+`stream_check.mjs` sends `content-type: application/grpc-web+proto`, `x-grpc-web: 1`, and an `Origin` header. It parses the 5-byte frames as each network chunk arrives and decodes block height, hash, prev_hash, chain metadata, and per tx the txid and Ironwood (nf, cmx). It also checks that each block's prev_hash equals the hash of the block before it.
+
+### Known-fact check (range 4425590..4425594)
+
+| Check | ChainSafe | relay -> zec.rocks | Chromium -> ChainSafe |
+|---|---|---|---|
+| grpc-web streaming, trailer `grpc-status 0` | yes | yes | yes |
+| blocks / Ironwood actions | 5 / 8 | 5 / 8 | 5 / (not decoded) |
+| tx `6bdeb823...98ba5b` at 4425592 | found, 3 Ironwood actions (tx index 1) | same | found (byte search) |
+| cmx `5cb2cdaa...37d720` | found, Ironwood action 3 of that tx | same | found (byte search) |
+| prev_hash links | 4/4 | 4/4 | not checked |
+
+- The Ironwood tree size in `ChainMetadata` goes 404059, 404060, 404064, 404065, 404066 for 4425590..4425594, consistent with 1, 1, 4, 1, 1 Ironwood actions.
+- Byte order: the txid is in protocol order (reverse it for display). The cmx bytes, hex-encoded as serialized, equal the evidence hex directly (no reversal). Block hashes are reversed for display (they start with `00`).
+- The 1,000-block decoded output (1,357 block/tx/action lines) was identical between ChainSafe and relay -> zec.rocks (`diff` empty).
+- `pool_types`: `[4]` returned the same 8 Ironwood actions (2,007 bytes). `[3]` returned blocks with 0 txs (511 bytes). Both servers prune by pool type. Whether `[4]` also drops Sapling/Orchard data is **unverified** (this range had none).
+
+### Timings (one run each, home network, not averaged)
+
+| Client -> server | Range | First block | Total | Bytes | Network chunks |
+|---|---|---|---|---|---|
+| Node -> ChainSafe | 5 blocks | 158 ms | 160 ms | 2,007 | 1 |
+| Node -> ChainSafe | 1,000 | 147 ms | 247 ms | 351,742 | 52 |
+| Node -> ChainSafe | 10,000 | 110 ms | 816 ms | 4,084,297 | 2,075 |
+| Node -> relay -> zec.rocks | 5 | 72 ms | 73 ms | 2,021 | 2 |
+| Node -> relay -> zec.rocks | 1,000 | 39 ms | 371 ms | 351,756 | 135 |
+| Node -> relay -> zec.rocks | 10,000 | 42 ms | 1,450 ms | 4,084,311 | 1,242 |
+| Chromium -> ChainSafe | 5 | 214 ms | 215 ms | n/a | 1 |
+| Chromium -> ChainSafe | 10,000 | 69 ms | 723 ms | n/a | 92 |
+| Chromium -> relay -> zec.rocks | 5 | 59 ms | 59 ms | n/a | 1 |
+| Chromium -> `testnet.zec.rocks` direct | 5 | `TypeError: Failed to fetch` (CORS, as in section 3) | | | |
+
+- First block arrives well before the end of the stream, so the response is streamed, not buffered.
+- At current testnet load, 10,000 blocks are about 4.1 MB and 17,804 Ironwood actions (about 410 bytes and 1.8 actions per block).
+- The ChainSafe preflight took 84 to 345 ms across the 6 runs where it was printed. Browsers cache it for 600 s (`max-age`).
+- The relay figures include the hop to zec.rocks (HTTP/2). The relay adds 14 bytes because its trailer frame also carries an empty `grpc-message`.
+
+### CORS headers returned by ChainSafe (Origin `https://marketplace.example`)
+
+- Preflight `OPTIONS`: `200`, `access-control-allow-origin: https://marketplace.example` (echoes the request Origin), `access-control-allow-credentials: true`, `access-control-allow-methods: POST`, `access-control-allow-headers: Content-Type, X-Grpc-Web, X-User-Agent`, `access-control-max-age: 600`, `vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers`.
+- `POST`: `access-control-allow-origin` (echo), `access-control-allow-credentials: true`, `access-control-expose-headers` includes `grpc-status, grpc-message` and Fly.io headers (`Fly-Request-Id`, `X-Backend`, `X-Region`, `Via`), `vary: Origin`.
+- In Chromium, `res.headers.get('grpc-status')` was `null`, which is expected here: the status comes in the body trailer frame (`grpc-status: 0`), and the page reads it from there.
+
+### Relay changes (`relay.mjs`)
+
+- `GetBlockRange` added to the allowlist. The rest of the list is unchanged, so `SendTransaction` is still allowed.
+- Upstream DATA chunks are now written to the client as they arrive, then the 0x80 trailer frame. Unary calls go through the same path. Re-checked: `GetLatestBlock` via the relay returned 200, height 4,434,159.
+- If the client disconnects, the relay closes the upstream stream. After cancelling a 10,000-block stream following the first chunk, the relay kept serving (`GetLatestBlock` 200). Whether zec.rocks actually received `RST_STREAM` is **unverified** (not observed on the wire).
+- Methods outside the list are still refused (`GetMempoolStream` -> 403).
+
+Incident: a shell quoting mistake once sent `start = 0` (NaN encoded as 0) to ChainSafe, which asked for the whole chain. The request was read-only and was stopped after about 3 minutes. `stream_check.mjs` now refuses non-integer heights and ranges over 20,001 blocks.
+
+### What this means for the browser marketplace
+
+- Works: a static page can scan compact blocks straight from `zcash-testnet.chainsafe.dev` with plain `fetch` + `ReadableStream` and no grpc-web library. Ironwood nullifiers and cmx values are present with the default (empty) `pool_types`, which is enough for nullifier-based spend detection and cmx lookup of a carrier's successor commitment.
+- Works: `relay.mjs` is a drop-in fallback for zec.rocks (same bytes, same decoded content). Before exposing it publicly it needs a cap on range size and rate limits. With no cap, one request can ask for the whole chain.
+- Does not work: direct browser access to `testnet.zec.rocks` (no CORS).
+- Still **unverified**: trial decryption cost in the browser (only transport was measured), whether `pool_types [4]` prunes other pools, ChainSafe availability over time and its rate limits, full-history scan time from Ironwood activation (activation height not checked here), and behaviour in Firefox/Safari (Chromium only).
+- Privacy: the server sees the client IP and every block range requested. Range scans leak less than per-tx lookups (`GetTransaction`), but the SPEC should still treat ChainSafe as a party that observes access patterns.
