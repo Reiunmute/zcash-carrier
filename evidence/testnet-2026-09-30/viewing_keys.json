@@ -1,0 +1,20 @@
+{
+  "note": "Full viewing keys of the test accounts used in the testnet runs. Viewing only: they cannot spend. Published so that verify.sh runs every holder and payment check without the local seed.",
+  "network": "test",
+  "acct0": {
+    "role": "funding (buyer in the 2026-09-30 sale)",
+    "fvk": "1ff4a4a5d447e6dcd8c3d206fb864cd7cec50381a0db4aab0d84a3cd429ae015da48e0cee5d8da65c8f6424c519cf7767a51a4736ece0691a747b8f165315b2a4940929314defb8e4e40d7abab38f3a4c615b6f78c7774d6fcd6eb498b07602a"
+  },
+  "acct3": {
+    "role": "buyer vault in the 2026-09-29 transfer, seller in the 2026-09-30 sale",
+    "fvk": "c505ebf72636ef2498e1c2868373439201ffcf43012428b823719f7f396f4c0dc75f2e50749a1c7d349d36ef5858ac4463e6b1e431900d6845b84566065c780732a9eefb6ae8c559555b6c158081d3c1647582e5b10fe906fbebf96fe8302738"
+  },
+  "acct5": {
+    "role": "seller pay key in the 2026-09-30 sale",
+    "fvk": "42cd85ecb490d662a6dbfc3b163f5a7783620c6be703fd027c0fdf2943137c3cf920b0c1f97780fa3cf3eb7bbb7307b606025e9247068b963619ad911800081df83599f07e77b239d6750b88d37213a0a239f29d81b042459aae889b54059325"
+  },
+  "acct6": {
+    "role": "buyer vault in the 2026-09-30 sale (holds item #1)",
+    "fvk": "c9000de0a5170d3f126bccca177a74bd01edb6970c3665bbda1b9466f7904a2a949cba778a38a6e989a52b308f6699830c1495d0193f94914d3ef2aa4458652940e0557c3cf434be54a807b61a2c68b4f5b45b20c3b960e90d7f563bf01ca22c"
+  }
+}

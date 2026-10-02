@@ -17,12 +17,23 @@ use zcash_client_backend::proto::{
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, TEST_NETWORK};
 
+pub mod verifier;
+
 pub type Client = CompactTxStreamerClient<tonic::transport::Channel>;
 pub const DEFAULT_LWD: &str = "https://testnet.zec.rocks:443";
 
+/// The lightwalletd endpoint in use (`LWD`, default testnet.zec.rocks). Every chain fact this
+/// crate reports is as served by this endpoint; see `verifier::cross_check` for a second source.
+pub fn lwd_url() -> String {
+    std::env::var("LWD").unwrap_or_else(|_| DEFAULT_LWD.to_string())
+}
+
 pub async fn connect() -> Result<Client> {
-    let url = std::env::var("LWD").unwrap_or_else(|_| DEFAULT_LWD.to_string());
-    let ch = tonic::transport::Channel::from_shared(url)?
+    connect_url(&lwd_url()).await
+}
+
+pub async fn connect_url(url: &str) -> Result<Client> {
+    let ch = tonic::transport::Channel::from_shared(url.to_string())?
         .tls_config(tonic::transport::ClientTlsConfig::new().with_webpki_roots())?
         .connect()
         .await
@@ -157,6 +168,11 @@ pub async fn get_tx(c: &mut Client, txid: &str) -> Result<(Transaction, Option<u
     let h = mined.unwrap_or(tip(c).await? + 1);
     let branch = BranchId::for_height(&TEST_NETWORK, BlockHeight::from_u32(h as u32));
     let tx = Transaction::read(&raw.data[..], branch).context("tx parse")?;
+    // Do not trust the server to return the transaction we asked for.
+    let got = tx.txid().to_string();
+    if got != txid {
+        bail!("lightwalletd returned tx {got} for requested {txid}");
+    }
     Ok((tx, mined))
 }
 
@@ -169,9 +185,21 @@ pub async fn blocks(c: &mut Client, start: u64, end: u64) -> Result<Vec<CompactB
         })
         .await?
         .into_inner();
-    let mut out = vec![];
+    let mut out: Vec<CompactBlock> = vec![];
     while let Some(b) = s.message().await? {
+        // The range must be contiguous and hash-linked. This catches a server that splices or
+        // drops blocks inside one response; it does not validate proof of work.
+        if let Some(p) = out.last() {
+            if b.height != p.height + 1 || b.prev_hash != p.hash {
+                bail!("lightwalletd block range not linked at height {}", b.height);
+            }
+        } else if b.height != start {
+            bail!("lightwalletd block range starts at {} not {start}", b.height);
+        }
         out.push(b);
+    }
+    if end >= start && out.last().map(|b| b.height) != Some(end) {
+        bail!("lightwalletd block range {start}..={end} incomplete");
     }
     Ok(out)
 }
@@ -189,7 +217,7 @@ fn node(cmx: &[u8]) -> Result<MerkleHashOrchard> {
 /// Builds a witness for `cmx` (mined at `note_h`) against the Ironwood root at `anchor_h`,
 /// and cross-checks our computed root against the server's treestate.
 pub async fn witness(c: &mut Client, cmx: &[u8; 32], note_h: u64, anchor_h: u64) -> Result<(MerklePath, Anchor)> {
-    let mut tree = ironwood_tree(c, note_h - 1).await?;
+    let mut tree = ironwood_tree(c, note_h.checked_sub(1).ok_or_else(|| anyhow!("note height 0"))?).await?;
     let mut w: Option<IncrementalWitness<MerkleHashOrchard, 32>> = None;
     for b in blocks(c, note_h, anchor_h).await? {
         for tx in &b.vtx {
