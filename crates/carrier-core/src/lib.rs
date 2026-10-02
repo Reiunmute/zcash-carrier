@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 /// transaction parser; callers extract the bundle from their own transaction type.
 pub type IwBundle = orchard::Bundle<orchard::bundle::Authorized, zcash_protocol::value::ZatBalance>;
 
+pub mod channel;
 pub mod keys;
 pub mod verify;
 
