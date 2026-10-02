@@ -3,7 +3,7 @@
 //! Roles are separate ZIP-32 accounts derived from one local test seed:
 //!   0 funding wallet, 1 issuer (sequence), 2 vault for item #1, 3 buyer vault, 4 vault for item #2.
 use anyhow::{anyhow, bail, Context, Result};
-use carrier::verifier::{cross_check, issuance_set, verify_item, Chain, Verdict};
+use carrier::verifier::{cross_check, issuance_set, verify_item, Chain, ChainSource, Verdict};
 use carrier::*;
 use orchard::{
     keys::{FullViewingKey, Scope, SpendAuthorizingKey},
@@ -535,8 +535,8 @@ async fn verified_carrier(mut c: Client, col: &Collection, pkg: &Package, holder
     let (_, gh) = get_tx(&mut c, &col.genesis_txid).await?;
     let gh = gh.ok_or_else(|| anyhow!("genesis tx unmined"))?;
     let mut ch = Chain::index(c, from.map_or(gh, |f| f.min(gh))).await?;
-    let set = issuance_set(&mut ch, col).await?;
-    match verify_item(&mut ch, col, &set, pkg, Some(holder)).await? {
+    let set = issuance_set(&mut ch, col, &mut |l| println!("{l}")).await?;
+    match verify_item(&mut ch, col, &set, pkg, Some(holder), &mut |l| println!("{l}")).await? {
         Verdict::Held { cur, txid, height, hop } => {
             cross_check(&mut ch).await?;
             Ok((ch, Held { note: note_to_json(&cur.note), cmx: hex::encode(cur.cmx), height, txid }, hop))

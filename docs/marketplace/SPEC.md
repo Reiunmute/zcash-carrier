@@ -215,10 +215,10 @@ Later: light-client header validation in the browser (proof-of-work and chain-wo
 | P4 | Vault records and account index records (4.2, 4.3); verifier walking record pointers; seed-only recovery test | to do |
 | P5 | Measure the Ironwood Action-count distribution; padding and anchor-age rules | to do |
 | P6 | Browser network: grpc-web streaming and Ironwood compact data (HANDOFF task 3) | to do |
-| P7 | `carrier-core` crate for native and wasm32 (HANDOFF task 5) | to do |
-| P8 | Key derivation of 2.1 (collectibles account, vault index, collision rule) replacing the PoC `OFF` offsets | to do |
+| P7 | `carrier-core` crate for native and wasm32 (HANDOFF task 5) | done 2026-10-02 for formats, keys, decryption and rules R1 to R3 (bundle-based, no `zcash_primitives`); `verify.sh` builds it for wasm32. The PCZT sale path stays native until a wasm-capable C compiler is available for `secp256k1-sys` (pulled in by `zcash_primitives`) |
+| P8 | Key derivation of 2.1 (collectibles account, vault index, collision rule) replacing the PoC `OFF` offsets | partly: `collectibles_seed` (HKDF, step 4) in `carrier-core::keys`; vault index allocation waits for proposal X2 |
 | P9 | FINAL hard seal (OPEN_ISSUES #2) | to do, needs a new test collection and broadcast approval |
-| P10 | Authenticated disclosure channel (3.2): HPKE messages bound to `T`, vault signature over `T` | to do |
+| P10 | Authenticated disclosure channel (3.2): HPKE messages bound to `T`, vault signature over `T` | partly: `vault_sign` / `vault_verify` (RedPallas, domain-separated) in `carrier-core::keys`; the encoding of `T` and HPKE wait for proposal X3 |
 | P11 | A second, independent lightwalletd (our own node) for 6.2 | to do |
 | P12 | Repeat the CLI sale with separately held seeds (`STATE` per party, `SALE_DIR` between them) | code ready 2026-10-02; run needs broadcast approval |
 

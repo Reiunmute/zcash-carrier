@@ -75,8 +75,9 @@ The plan is [`docs/marketplace/SPEC.md`](docs/marketplace/SPEC.md) (draft 3, **n
 ## Layout
 
 ```
-src/lib.rs                  memo format, keys, lightwalletd client, tree witness, decryption
-src/verifier.rs             R1 to R3, shared by verify and the sale buyer path
+crates/carrier-core/       formats, keys, decryption, rules R1 to R3; builds for native and wasm32
+src/lib.rs                  lightwalletd client, tree witness, file input (re-exports carrier-core)
+src/verifier.rs             lightwalletd ChainSource for the rules, LWD2 cross-check
 src/bin/carrier.rs          issuer/holder CLI: info, scan, genesis, final, transfer, attack-*, sale-*, keys
 src/bin/verify.rs           verifier CLI (chain data, collection record, package, holder key); payment check
 verify.sh                   repo gate: build + re-verify testnet evidence + rebuild art

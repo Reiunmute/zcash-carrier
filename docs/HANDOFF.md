@@ -52,6 +52,7 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | lightwalletd trust | one server. txid, hash-link and compact/full checks done; `LWD2` content cross-check implemented, no independent second server reachable yet; no proof-of-work validation | OPEN_ISSUES #5 |
 | FINAL hard seal | implemented (`seal_address`, `SEAL=1`, R1 `sealed=`), not yet on chain | OPEN_ISSUES #2, `scripts/run_p9_p12.sh` |
 | P5 Action counts | measured 2026-10-02; proposal for a 3-Action sale | `research/p5-action-counts-2026-10-02.md` |
+| Core crate (P7) | `crates/carrier-core`: formats, keys, decryption, rules R1 to R3, vault signatures, collectibles seed. Builds for native and wasm32 (checked by `verify.sh`). PCZT path still native | `crates/carrier-core/` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
 | Marketplace SPEC | draft 3, **approved by Ryot 2026-10-02** with the default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
 | Web app | not started | none |
@@ -173,6 +174,8 @@ Record everything under `evidence/testnet-<date>/`.
 Send FINAL to an address with no known spending key, for example a nothing-up-my-sleeve point. Alternatively, prove that FINAL's nullifier is spent into nothing. This needs a new test collection and Ryot's approval to broadcast.
 
 ### Task 5. Core crate for native and WASM
+
+> Status 2026-10-02: done for everything except the PCZT sale path. `carrier-core` holds no network or file code and does not depend on `zcash_primitives` (whose transparent support pulls `secp256k1-sys`, C code that Apple clang cannot compile for wasm32). Rules take Ironwood bundles; the CLI extracts them from transactions. Next: a wasm-capable C compiler (for example Homebrew LLVM, a large download that needs Ryot's OK) to bring the PCZT path to the browser, then wasm-bindgen exports.
 
 Extract memo format, key derivation, binding builder, and verifier into `carrier-core`, compiling to native and `wasm32-unknown-unknown`. Keep `carrier` and `verify` as thin CLIs over it. Exit: `verify.sh` is still green, and the WASM build compiles.
 

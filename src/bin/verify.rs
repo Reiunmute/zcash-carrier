@@ -10,7 +10,7 @@
 //!
 //! Exit codes: 0 held (or no package), 2 fail, 3 burned, 4 spent, 5 unverified (no holder key).
 use anyhow::{anyhow, bail, Result};
-use carrier::verifier::{self, cross_check, issuance_set, paid_to, verify_item, Chain, Verdict};
+use carrier::verifier::{self, cross_check, issuance_set, paid_to, verify_item, Chain, ChainSource, Verdict};
 use carrier::*;
 use std::fs;
 
@@ -30,7 +30,7 @@ async fn payment_file(a: &[String]) -> Result<i32> {
     if tx.txid().to_string() != *txid {
         bail!("{file} hashes to {}, not {txid}", tx.txid());
     }
-    let paid = verifier::paid_to(&tx, &fvk_from_hex(fvk)?)?;
+    let paid = verifier::paid_to(tx.ironwood_bundle().ok_or_else(|| anyhow!("{file} has no Ironwood bundle"))?, &fvk_from_hex(fvk)?)?;
     let expected: u64 = expected.parse()?;
     let mut c = connect().await?;
     let (stx, h) = get_tx(&mut c, txid).await?;
@@ -52,7 +52,7 @@ async fn payment(a: &[String]) -> Result<i32> {
     let mut c = connect().await?;
     let (tx, h) = get_tx(&mut c, txid).await?;
     let h = h.ok_or_else(|| anyhow!("{txid} unmined"))?;
-    let paid = paid_to(&tx, &fvk)?;
+    let paid = paid_to(tx.ironwood_bundle().ok_or_else(|| anyhow!("{txid} has no Ironwood bundle"))?, &fvk)?;
     println!("PAYMENT {paid} zats to the given key in {}..@{h} (expected {expected})", &txid[..12]);
     Ok(if paid == expected { 0 } else { 2 })
 }
@@ -78,7 +78,7 @@ async fn run() -> Result<i32> {
     let mut ch = Chain::index(connect().await?, from).await?;
     println!("== collection {}", col.coll.get(..16).ok_or_else(|| anyhow!("collection id too short"))?);
 
-    let set = issuance_set(&mut ch, &col).await?;
+    let set = issuance_set(&mut ch, &col, &mut |l| println!("{l}")).await?;
     println!("R1 issuance set: {} item(s), finalized={}, sealed={}", set.items.len(), set.finalized, set.sealed);
     fs::create_dir_all("out")?;
     for i in &set.items {
@@ -92,7 +92,7 @@ async fn run() -> Result<i32> {
     // issuance set (attack C). Checked for txids supplied on the command line.
     for extra in a.iter().skip(4) {
         let (tx, _) = ch.tx(extra).await?;
-        for f in recover_ovk(&tx, &issuer).into_iter().chain(decrypt_ivk(&tx, &issuer)) {
+        for f in recover_bundle_ovk(Some(&tx), &issuer).into_iter().chain(decrypt_bundle_ivk(Some(&tx), &issuer)) {
             if let Some(m) = decode_memo(&f.memo) {
                 if m.kind == K_CARRIER && !set.items.iter().any(|i| i.cmx == f.cmx) {
                     println!("R1 REJECT claimed item #{} in {}..: not in finalized issuance set", m.num, extra.get(..12).unwrap_or(extra));
@@ -108,7 +108,7 @@ async fn run() -> Result<i32> {
     let pkg: Package = load(pp)?;
     println!("== package item #{} ({})", pkg.item, pkg.label);
     let holder = std::env::var("HOLDER_FVK").ok().map(|h| fvk_from_hex(&h)).transpose()?;
-    let verdict = verify_item(&mut ch, &col, &set, &pkg, holder.as_ref()).await?;
+    let verdict = verify_item(&mut ch, &col, &set, &pkg, holder.as_ref(), &mut |l| println!("{l}")).await?;
     let code = match &verdict {
         Verdict::Held { cur, .. } => {
             fs::write("out/current_carrier_cmx.txt", hex::encode(cur.cmx))?;

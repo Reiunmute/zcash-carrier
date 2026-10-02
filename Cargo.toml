@@ -1,9 +1,13 @@
+[workspace]
+members = [".", "crates/carrier-core"]
+
 [package]
 name = "carrier"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+carrier-core = { path = "crates/carrier-core" }
 orchard = "0.15.5"
 zcash_primitives = "0.30.1"
 zcash_protocol = "0.10.6"

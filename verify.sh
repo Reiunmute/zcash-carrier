@@ -30,6 +30,14 @@ run() {
 mkdir -p out
 echo "== build"
 cargo build --release --quiet
+cargo test --release --quiet -p carrier-core >/dev/null || fail "carrier-core unit tests"
+# carrier-core must keep compiling for the browser (marketplace SPEC P7).
+if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
+  cargo build --release --quiet -p carrier-core --target wasm32-unknown-unknown || fail "carrier-core does not build for wasm32"
+  echo "   carrier-core builds for wasm32-unknown-unknown"
+else
+  echo "   wasm32-unknown-unknown target not installed: wasm build skipped"
+fi
 V=./target/release/verify
 
 FUNDING=$(key acct0)   # funding; the real successor of forged item #2 is its change note

@@ -1,0 +1,27 @@
+[package]
+name = "carrier-core"
+version = "0.1.0"
+edition = "2021"
+description = "Carrier rules, formats and decryption, shared by the native CLI and the browser (wasm32)."
+
+[features]
+# Multithreaded proving. On wasm32 it needs nightly with +atomics,+bulk-memory (see research/stage1-checks).
+multicore = ["orchard/multicore"]
+
+[dependencies]
+orchard = { version = "0.15.5", default-features = false, features = ["std", "circuit"] }
+zcash_protocol = "0.10.6"
+zcash_note_encryption = "0.4"
+zcash_address = "0.13"
+zip32 = "0.2"
+pasta_curves = { version = "0.5.2", features = ["alloc"] }
+group = "0.13"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+rand_core = { version = "0.6", features = ["getrandom"] }
+hkdf = "0.12"
+sha2 = "0.10"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
