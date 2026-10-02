@@ -1,6 +1,6 @@
 # Marketplace SPEC (draft 3, Stage 1: public, browser-only)
 
-Status: draft for approval. BUILD starts after Ryot approves. Not approved yet.
+Status: **approved by Ryot on 2026-10-02**, with the draft 3 defaults for decisions D2 to D8 (section 10). Changes to this SPEC need his approval again. D6: ask for design direction before any UI work.
 Draft 3 (2026-10-02) replaces draft 2 (2026-10-01) after the Codex review (`docs/research/codex-review-2026-10-02.md`). Changes are listed in section 14. Draft 0, a local companion on one Mac, was dropped because it could not serve the public.
 Evidence for measured claims: `research/stage1-checks/RESULTS.md` (browser), `evidence/testnet-2026-09-30/` (atomic sale), `evidence/testnet-2026-10-02/` (hardened sale, DRY), `docs/research/zecbit-whitepaper.md` (lessons from the competing design).
 
@@ -225,7 +225,7 @@ Later: light-client header validation in the browser (proof-of-work and chain-wo
 
 | ID | Decision | Draft 3 default |
 |---|---|---|
-| D1 | Approve this SPEC | pending |
+| D1 | Approve this SPEC | approved 2026-10-02 |
 | D2 | Sale proceeds to a per-listing collectibles address (unlinkable, then sweep) or directly to the main wallet (simpler, linkable) | per-listing address |
 | D3 | Marketplace fee: none, or a fee output in the sale tx (3.5) | none for the testnet beta |
 | D4 | Testnet beta prices: does a TAZ price count as "offering testnet assets" (CLAUDE.md rule 5)? | free transfers only, no TAZ prices, until decided |

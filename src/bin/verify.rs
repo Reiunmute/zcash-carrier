@@ -5,6 +5,7 @@
 //! Usage:
 //!   verify <collection.json> <from_height> [<package.json> [claimed_txid...]]   (HOLDER_FVK=<hex> for R3)
 //!   verify payment <txid> <fvk_hex> <expected_zats>
+//!   verify mined <txid>
 //!
 //! Exit codes: 0 held (or no package), 2 fail, 3 burned, 4 spent, 5 unverified (no holder key).
 use anyhow::{anyhow, Result};
@@ -12,7 +13,7 @@ use carrier::verifier::{cross_check, issuance_set, paid_to, verify_item, Chain, 
 use carrier::*;
 use std::fs;
 
-const USAGE: &str = "usage: verify <collection.json> <from_height> [<package.json> [claimed_txid...]] | verify payment <txid> <fvk_hex> <expected_zats>";
+const USAGE: &str = "usage: verify <collection.json> <from_height> [<package.json> [claimed_txid...]] | verify payment <txid> <fvk_hex> <expected_zats> | verify mined <txid>";
 
 fn load<T: serde::de::DeserializeOwned>(p: &str) -> Result<T> {
     Ok(serde_json::from_str(&fs::read_to_string(p)?)?)
@@ -36,6 +37,12 @@ async fn run() -> Result<i32> {
     if a.get(1).map(String::as_str) == Some("payment") {
         return payment(&a[2..]).await;
     }
+    if a.get(1).map(String::as_str) == Some("mined") {
+        let txid = a.get(2).ok_or_else(|| anyhow!(USAGE))?;
+        let (_, h) = get_tx(&mut connect().await?, txid).await?;
+        println!("MINED {}", h.map(|h| h.to_string()).unwrap_or_else(|| "no".into()));
+        return Ok(if h.is_some() { 0 } else { 2 });
+    }
     let (Some(colp), Some(from)) = (a.get(1), a.get(2)) else { return Err(anyhow!(USAGE)) };
     let col: Collection = load(colp)?;
     let issuer = fvk_from_hex(&col.issuer_fvk)?;
@@ -44,7 +51,7 @@ async fn run() -> Result<i32> {
     println!("== collection {}", col.coll.get(..16).ok_or_else(|| anyhow!("collection id too short"))?);
 
     let set = issuance_set(&mut ch, &col).await?;
-    println!("R1 issuance set: {} item(s), finalized={}", set.items.len(), set.finalized);
+    println!("R1 issuance set: {} item(s), finalized={}, sealed={}", set.items.len(), set.finalized, set.sealed);
     fs::create_dir_all("out")?;
     for i in &set.items {
         println!("   #{} cmx {}.. art {}B in {}..", i.num, &hex::encode(i.cmx)[..12], i.art.len(), &i.txid[..12]);

@@ -52,7 +52,7 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | Codex review | 2026-10-02, 14 findings, all addressed (code, gate, docs, SPEC draft 3) | `docs/research/codex-review-2026-10-02.md` |
 | lightwalletd trust | one server. txid, hash-link and compact/full checks done; `LWD2` cross-check implemented, no independent second server reachable yet | OPEN_ISSUES #5 |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
-| Marketplace SPEC | draft 3 (2026-10-02), **awaiting Ryot's approval**. Decisions D1 to D7 in section 10 | `docs/marketplace/SPEC.md` |
+| Marketplace SPEC | draft 3, **approved by Ryot 2026-10-02** with the default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
 | Web app | not started | none |
 | GitHub | `Reiunmute/zcash-carrier`, **private** | `git remote -v` |
 
@@ -181,7 +181,7 @@ Remember the multithreading requirements (see `research/stage1-checks/RESULTS.md
 - `wasm-bindgen-rayon`
 - COOP/COEP headers
 
-### Task 6. Web app. Only after Ryot approves `docs/marketplace/SPEC.md`
+### Task 6. Web app (SPEC draft 3 approved 2026-10-02; ask for design direction first, D6)
 
 Follow the approved SPEC (draft 3 at the time of writing): pages, connect flow with a Noir derived signature, deposit, intent and authenticated disclosure, buy, accept. Prerequisites P4 to P12 come first.
 

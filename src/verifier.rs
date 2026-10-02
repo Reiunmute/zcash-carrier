@@ -4,6 +4,7 @@
 //!                     chain (a spend of the live sequence note bound to its successor in the
 //!                     SAME action), up to a FINAL memo. Each issuance tx has exactly one sequence
 //!                     note, and sequence notes and carriers have value 0. Carriers have hop 0.
+//!                     A FINAL sent to `seal_address(coll)` is a hard seal (OPEN_ISSUES #2).
 //!  R2 transfer hop  = spend of the current carrier note, with the successor output in the SAME
 //!                     action (successor rho == spent nullifier, enforced by the Action circuit).
 //!                     The successor must have value 0 and a HOP memo for the same collection and
@@ -121,6 +122,8 @@ pub struct Issued {
 pub struct IssuanceSet {
     pub items: Vec<Issued>,
     pub finalized: bool,
+    /// FINAL was sent to the collection's seal address: nobody can continue the sequence.
+    pub sealed: bool,
 }
 
 fn coll_of(col: &Collection) -> Result<[u8; 32]> {
@@ -135,13 +138,19 @@ pub async fn issuance_set(ch: &mut Chain, col: &Collection) -> Result<IssuanceSe
     let mut txid = col.genesis_txid.clone();
     let mut expect_rho: Option<[u8; 32]> = None; // successor rho the next sequence note must have
     let mut finalized = false;
+    let mut sealed = false;
     loop {
         let (tx, h) = ch.tx(&txid).await?;
+        // Sequence notes the issuer holds (incoming key), plus a FINAL sent to the collection's seal
+        // address, which only the issuer's outgoing key can recover (OPEN_ISSUES #2).
+        let seal = seal_address(&coll);
         let mut seqs: Vec<(Found, Memo)> = decrypt_ivk(&tx, &issuer)
             .into_iter()
+            .chain(recover_ovk(&tx, &issuer).into_iter().filter(|f| f.note.recipient() == seal))
             .filter_map(|f| decode_memo(&f.memo).map(|m| (f, m)))
-            .filter(|(_, m)| (m.kind == K_SEQ || m.kind == K_FINAL) && m.coll == coll)
+            .filter(|(f, m)| m.coll == coll && (m.kind == K_SEQ || m.kind == K_FINAL) && (m.kind == K_FINAL || f.note.recipient() != seal))
             .collect();
+        seqs.dedup_by(|a, b| a.0.cmx == b.0.cmx);
         if seqs.len() != 1 {
             bail!("R1: {} sequence notes in {txid}, expected exactly one", seqs.len());
         }
@@ -169,6 +178,7 @@ pub async fn issuance_set(ch: &mut Chain, col: &Collection) -> Result<IssuanceSe
         }
         if sm.kind == K_FINAL {
             finalized = true;
+            sealed = seq.note.recipient() == seal;
             break;
         }
         let nf = seq.note.nullifier(&issuer).to_bytes();
@@ -185,7 +195,7 @@ pub async fn issuance_set(ch: &mut Chain, col: &Collection) -> Result<IssuanceSe
     if nums.windows(2).any(|w| w[0] == w[1]) {
         bail!("R1 duplicate item numbers in issuance set");
     }
-    Ok(IssuanceSet { items, finalized })
+    Ok(IssuanceSet { items, finalized, sealed })
 }
 
 /// Outcome of R2 and R3 for one item.

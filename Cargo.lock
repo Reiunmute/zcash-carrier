@@ -318,9 +318,11 @@ name = "carrier"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "group",
  "hex",
  "incrementalmerkletree",
  "orchard",
+ "pasta_curves",
  "pczt",
  "png",
  "rand",

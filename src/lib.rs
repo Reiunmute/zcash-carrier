@@ -88,6 +88,31 @@ pub fn decode_memo(m: &[u8; 512]) -> Option<Memo> {
     })
 }
 
+// ---------- FINAL hard seal (OPEN_ISSUES #2) ----------
+pub const SEAL_DOMAIN: &str = "carrier:final-seal:v1";
+const SEAL_DIVERSIFIER: &[u8; 11] = b"carrierseal";
+
+/// An Orchard-protocol address whose spending key nobody knows. Its transmission key `pk_d` is a
+/// hash-to-curve point of the collection id, so nobody knows an `ivk` with `pk_d = [ivk] g_d`.
+/// A FINAL note sent here can never be spent, so the sequence chain can never continue. Anyone
+/// can recompute the address from `coll`.
+pub fn seal_address(coll: &[u8; 32]) -> Address {
+    use group::GroupEncoding;
+    use pasta_curves::arithmetic::CurveExt;
+    let hasher = pasta_curves::pallas::Point::hash_to_curve(SEAL_DOMAIN);
+    for ctr in 0u32.. {
+        let mut msg = coll.to_vec();
+        msg.extend_from_slice(&ctr.to_le_bytes());
+        let mut raw = [0u8; 43];
+        raw[..11].copy_from_slice(SEAL_DIVERSIFIER);
+        raw[11..].copy_from_slice(&hasher(&msg).to_bytes());
+        if let Some(a) = Option::from(Address::from_raw_address_bytes(&raw)) {
+            return a; // fails only for the identity point, which hash_to_curve practically never yields
+        }
+    }
+    unreachable!()
+}
+
 // ---------- keys / notes ----------
 pub fn spending_key(seed: &[u8; 32], account: u32) -> SpendingKey {
     SpendingKey::from_zip32_seed(seed, 1, zip32::AccountId::try_from(account).unwrap()).unwrap()
@@ -306,4 +331,26 @@ pub struct Package {
     pub item: u32,
     pub label: String,
     pub hops: Vec<Hop>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seal_address_is_deterministic_and_per_collection() {
+        let (a, b) = ([7u8; 32], [8u8; 32]);
+        assert_eq!(seal_address(&a).to_raw_address_bytes(), seal_address(&a).to_raw_address_bytes());
+        assert_ne!(seal_address(&a).to_raw_address_bytes(), seal_address(&b).to_raw_address_bytes());
+        // not the address of any key we derive
+        let fvk = FullViewingKey::from(&spending_key(&[1u8; 32], 0));
+        assert_eq!(fvk.scope_for_address(&seal_address(&a)), None);
+    }
+
+    #[test]
+    fn memo_round_trip() {
+        let m = encode_memo(K_HOP, &[3u8; 32], 5, 2, &[]);
+        let d = decode_memo(&m).unwrap();
+        assert_eq!((d.kind, d.coll, d.num, d.hop), (K_HOP, [3u8; 32], 5, 2));
+    }
 }

@@ -60,12 +60,19 @@ fn addr(a: &Acct) -> orchard::Address {
     a.fvk.address_at(0u32, Scope::External)
 }
 
+/// Working files (collection, packages, tx records). Defaults to the seed's STATE dir; FILES_DIR
+/// keeps a second collection's files apart while still using the same seed.
+fn files_dir() -> PathBuf {
+    std::env::var("FILES_DIR").map(PathBuf::from).unwrap_or_else(|_| dir())
+}
+
 fn save<T: serde::Serialize>(name: &str, v: &T) -> Result<()> {
-    fs::write(dir().join(name), serde_json::to_string_pretty(v)?)?;
+    fs::create_dir_all(files_dir())?;
+    fs::write(files_dir().join(name), serde_json::to_string_pretty(v)?)?;
     Ok(())
 }
 fn load<T: serde::de::DeserializeOwned>(name: &str) -> Result<T> {
-    Ok(serde_json::from_str(&fs::read_to_string(dir().join(name)).with_context(|| name.to_string())?)?)
+    Ok(serde_json::from_str(&fs::read_to_string(files_dir().join(name)).with_context(|| name.to_string())?)?)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -150,7 +157,7 @@ async fn build_and_send(c: &mut Client, spends: Vec<Spend<'_>>, outs: Vec<Out>, 
         }
         for o in &outs {
             let memo = MemoBytes::from_bytes(&o.memo).map_err(|e| anyhow!("memo {e:?}"))?;
-            b.add_ironwood_output::<std::convert::Infallible>(o.ovk.clone(), o.to, Zatoshis::from_u64(o.value).unwrap(), memo)
+            b.add_ironwood_output::<std::convert::Infallible>(o.ovk.clone(), o.to, Zatoshis::from_u64(o.value).map_err(|_| anyhow!("amount {} out of range", o.value))?, memo)
                 .map_err(|e| anyhow!("output: {e}"))?;
         }
         let res = b
@@ -269,7 +276,9 @@ async fn run() -> Result<()> {
             println!("GENESIS {txid}");
         }
         // tx2: S(prev) -> S(next, FINAL) bound in the same action, + C2 (item #2); fee from change.
+        // SEAL=1 sends FINAL to the collection's seal address, which nobody can spend (OPEN_ISSUES #2).
         "final" => {
+            let sealed = std::env::var("SEAL").is_ok();
             let col: Collection = load("collection.json")?;
             let (a0, a1, a4) = (acct(0)?, acct(1)?, acct(4)?);
             let (s0, sh) = find_output(&mut c, &col.genesis_txid, &a1.fvk, Some(K_SEQ)).await?;
@@ -277,17 +286,17 @@ async fn run() -> Result<()> {
             let coll = arr32(&col.coll)?;
             let art2 = fs::read("art/art2.bin")?;
             let outs = vec![
-                Out { to: addr(&a1), value: 0, memo: encode_memo(K_FINAL, &coll, 2, 1, &[]), ovk: ovk(&a1) },
+                Out { to: if sealed { seal_address(&coll) } else { addr(&a1) }, value: 0, memo: encode_memo(K_FINAL, &coll, 2, 1, &[]), ovk: ovk(&a1) },
                 Out { to: addr(&a4), value: 0, memo: encode_memo(K_CARRIER, &coll, 2, 0, &art2), ovk: ovk(&a1) },
-                Out { to: addr(&a0), value: ch.note.value().inner() - fee(3), memo: empty_memo(), ovk: ovk(&a0) },
+                Out { to: addr(&a0), value: ch.note.value().inner().checked_sub(fee(3)).ok_or_else(|| anyhow!("funding too small"))?, memo: empty_memo(), ovk: ovk(&a0) },
             ];
             let spends = vec![
                 Spend { fvk: &a1.fvk, note: s0.note, cmx: s0.cmx, height: sh, bind_output: Some(0), avoid_output: None },
                 Spend { fvk: &a0.fvk, note: ch.note, cmx: ch.cmx, height: chh, bind_output: None, avoid_output: None },
             ];
             let txid = build_and_send(&mut c, spends, outs, vec![a1.sak, a0.sak], dry).await?;
-            save("final.json", &serde_json::json!({ "txid": txid }))?;
-            println!("FINAL {txid}");
+            save("final.json", &serde_json::json!({ "txid": txid, "sealed": sealed }))?;
+            println!("FINAL {txid} sealed={sealed}");
         }
         // tx3: C1 (vault 2) -> buyer vault 3, bound in the same action; fee from change.
         "transfer" => {
@@ -385,6 +394,23 @@ async fn run() -> Result<()> {
         "sale-list" => sale_list(c).await?,
         "sale-buy" => sale_buy(c).await?,
         "sale-accept" => sale_accept(c, dry).await?,
+        // Plain payment from the funding account: send <recipient_fvk_hex> <zats>, funding note in FUND_TX.
+        // Used to fund a second, separately held seed (marketplace SPEC P12).
+        "send" => {
+            let to = fvk_from_hex(args.get(2).ok_or_else(|| anyhow!("usage: carrier send <recipient_fvk_hex> <zats>"))?)?;
+            let value: u64 = args.get(3).ok_or_else(|| anyhow!("usage: carrier send <recipient_fvk_hex> <zats>"))?.parse()?;
+            let a0 = acct(0)?;
+            let fund_tx = std::env::var("FUND_TX").map_err(|_| anyhow!("set FUND_TX to the tx holding the funding note"))?;
+            let (f, fh) = find_change(&mut c, &fund_tx, &a0.fvk).await?;
+            let change = f.note.value().inner().checked_sub(value.checked_add(fee(2)).ok_or_else(|| anyhow!("amount overflow"))?).ok_or_else(|| anyhow!("funding note too small"))?;
+            let outs = vec![
+                Out { to: to.address_at(0u32, Scope::External), value, memo: empty_memo(), ovk: ovk(&a0) },
+                Out { to: addr(&a0), value: change, memo: empty_memo(), ovk: ovk(&a0) },
+            ];
+            let spends = vec![Spend { fvk: &a0.fvk, note: f.note, cmx: f.cmx, height: fh, bind_output: None, avoid_output: None }];
+            let txid = build_and_send(&mut c, spends, outs, vec![a0.sak], dry).await?;
+            println!("SEND {txid} {value} zats, change {change}{}", if dry { " (DRY, not broadcast)" } else { "" });
+        }
         "keys" => {
             // Public: issuer fvk (collection audit). Private to holders: vault fvks in packages.
             // acct5 (seller pay), acct6 and acct7 (buyer vaults) are the sale roles.
@@ -392,7 +418,7 @@ async fn run() -> Result<()> {
                 println!("acct{n} fvk {}", fvk_hex(&acct(n)?.fvk));
             }
         }
-        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | sale-list | sale-buy | sale-accept | keys"),
+        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | sale-list | sale-buy | sale-accept | send <fvk> <zats> | keys"),
     }
     Ok(())
 }
