@@ -57,7 +57,10 @@ fn acct_index(n: u32) -> u32 {
     if n == 0 { 0 } else { n + off }
 }
 fn acct(n: u32) -> Result<Acct> {
-    let sk = spending_key(&seed()?, acct_index(n));
+    acct_at(acct_index(n))
+}
+fn acct_at(index: u32) -> Result<Acct> {
+    let sk = spending_key(&seed()?, index);
     Ok(Acct { sak: SpendAuthorizingKey::from(&sk), fvk: FullViewingKey::from(&sk) })
 }
 fn addr(a: &Acct) -> orchard::Address {
@@ -451,7 +454,8 @@ async fn find_change(c: &mut Client, txid: &str, fvk: &FullViewingKey) -> Result
 // ---------- two-party atomic sale via PCZT (marketplace SPEC section 3) ----------
 // Roles (shifted by OFF like every role except funding), overridable per run:
 //   seller = SELLER_ACCT (default 3, the vault holding the item) + PAY_ACCT (default 5, payment key)
-//   buyer  = acct0 (funding, note in FUND_TX) + BUYER_VAULT_ACCT (default 6, the buyer's new vault)
+//   buyer  = acct0 (funding, note in FUND_TX) + BUYER_VAULT_ACCT (default 6, the buyer's new vault;
+//            `auto` allocates the next never-used ZIP-32 index, SPEC 2.1 step 6)
 // Each subcommand derives only the keys of its own role. Buyer and seller can run with different
 // STATE dirs (separate seeds); they exchange the listing and the PCZT through SALE_DIR.
 
@@ -571,8 +575,19 @@ async fn sale_buy(c: Client) -> Result<()> {
     let l: Listing = serde_json::from_slice(&read_capped(&listing_path())?)?;
     let lid = listing_id(&l)?;
     let vault = fvk_from_hex(&l.vault_fvk)?;
-    let bv_n = env_u32("BUYER_VAULT_ACCT", 6)?;
-    let (a0, bv) = (acct(0)?, acct(bv_n)?);
+    // BUYER_VAULT_ACCT=auto allocates a fresh vault index (SPEC 2.1 step 6); a number is a role
+    // shifted by OFF, as for every other role.
+    let auto = std::env::var("BUYER_VAULT_ACCT").as_deref() == Ok("auto");
+    let bv_idx = if auto {
+        let seed = seed()?;
+        let scan = scan_records(&mut c, &seed, env_u64("BIRTHDAY", IRONWOOD_ACTIVATION)?).await?;
+        let i = next_vault_index(&seed, &scan)?;
+        println!("  vault index {i} (auto: {} recorded vault(s), none of index {i} on chain since {})", scan.owned.len(), scan.from);
+        i
+    } else {
+        acct_index(env_u32("BUYER_VAULT_ACCT", 6)?)
+    };
+    let (a0, bv) = (acct(0)?, acct_at(bv_idx)?);
     let fund_tx = std::env::var("FUND_TX").map_err(|_| anyhow!("set FUND_TX to the tx holding the buyer's funding note"))?;
     let (fund, fh) = find_change(&mut c, &fund_tx, &a0.fvk).await?;
     // Never trust the listing's note: verify the current carrier from chain with the listed key.
@@ -614,7 +629,7 @@ async fn sale_buy(c: Client) -> Result<()> {
         Out { to: pay, value: pay_value, memo: empty_memo(), ovk: ovk(&a0) },
         // 2: buyer change, present even at zero value; the buyer pays the fee. Its memo is the
         //    account index record (SPEC 4.3), so the buyer's seed alone finds the new vault.
-        Out { to: addr(&a0), value: change, memo: encode_memo(K_ACCOUNT, &coll, l.item, next_hop, &encode_account_record(acct_index(bv_n))), ovk: ovk(&a0) },
+        Out { to: addr(&a0), value: change, memo: encode_memo(K_ACCOUNT, &coll, l.item, next_hop, &encode_account_record(bv_idx)), ovk: ovk(&a0) },
     ];
     let (cpath, anchor) = witness(&mut ch.c, &ccmx, l.carrier.height, tip_h).await?;
     let (fpath, fanchor) = witness(&mut ch.c, &fund.cmx, fh, tip_h).await?;
@@ -650,6 +665,10 @@ async fn sale_buy(c: Client) -> Result<()> {
     let pk = carrier_sale::proving_key();
     println!("  proving key {:.1}s", t.elapsed().as_secs_f64());
     let built = carrier_sale::buyer_build(sale, &pk, &mut OsRng, &mut |l| println!("{l}"))?;
+    if auto {
+        // Reserve the index: a later purchase must not reuse it while this PCZT may still mine.
+        fs::write(dir().join("vault_next"), (bv_idx + 1).to_string())?;
+    }
     fs::write(sale_pczt_path(), &built.pczt)?;
     println!("SALE-BUY wrote {} ({} bytes), carrier action {}, pays {pay_value} zats", sale_pczt_path().display(), built.pczt.len(), built.carrier_action);
     Ok(())
@@ -722,21 +741,32 @@ async fn sale_accept(c: Client, dry: bool) -> Result<()> {
     Ok(())
 }
 
-/// Seed-only recovery (marketplace SPEC 4.3): scan account 0 from BIRTHDAY (default: Ironwood
-/// activation) for account index records. A record is accepted only if its tx gives the vault it
-/// names a valid successor carrier (R2) for the same item and hop. Reports each item, whether its
-/// carrier is still unspent, and the next free vault index. Read-only.
-async fn recover(mut c: Client) -> Result<()> {
+const IRONWOOD_ACTIVATION: u64 = 4_134_000;
+
+/// One accepted account index record: collection, item, hop, carrier txid and Action, unspent.
+type OwnedRec = ([u8; 32], u32, u32, String, usize, bool);
+
+struct RecordScan {
+    /// vault index -> accepted records naming it
+    owned: std::collections::BTreeMap<u32, Vec<OwnedRec>>,
+    from: u64,
+    /// every compact Ironwood action in from..=to, for the never-used check
+    actions: Vec<orchard::note_encryption::CompactAction>,
+}
+
+/// SPEC 4.3: scans account 0 of `seed` from `from` for account index records. A record is
+/// accepted only if its tx gives the vault it names a valid successor carrier (R2) for the same
+/// item and hop.
+async fn scan_records(c: &mut Client, seed: &[u8; 32], from: u64) -> Result<RecordScan> {
     use std::collections::{BTreeMap, BTreeSet, HashSet};
-    let seed = seed()?;
-    let a0 = FullViewingKey::from(&spending_key(&seed, 0));
+    let a0 = FullViewingKey::from(&spending_key(seed, 0));
     let pivk = orchard::keys::PreparedIncomingViewingKey::new(&a0.to_ivk(Scope::External));
-    let (from, to) = (env_u64("BIRTHDAY", 4_134_000)?, tip(&mut c).await?);
-    let (mut hits, mut nfs) = (BTreeSet::new(), HashSet::new());
+    let to = tip(c).await?;
+    let (mut hits, mut nfs, mut actions) = (BTreeSet::new(), HashSet::new(), vec![]);
     let mut s = from;
     while s <= to {
         let e = s.saturating_add(9_999).min(to);
-        for b in blocks(&mut c, s, e).await? {
+        for b in blocks(c, s, e).await? {
             for tx in &b.vtx {
                 for a in &tx.ironwood_actions {
                     nfs.insert(a.nullifier.clone());
@@ -745,23 +775,23 @@ async fn recover(mut c: Client) -> Result<()> {
                     if zcash_note_encryption::try_compact_note_decryption(&d, &pivk, &ca).is_some() {
                         hits.insert((b.height, txid_hex(&tx.txid)));
                     }
+                    actions.push(ca);
                 }
             }
         }
         s = e + 1;
     }
     println!("scanned {from}..={to}: {} tx(s) pay account 0", hits.len());
-    // vault index -> accepted (collection, item, hop, carrier txid, action, unspent)
-    let mut owned: BTreeMap<u32, Vec<([u8; 32], u32, u32, String, usize, bool)>> = BTreeMap::new();
+    let mut owned: BTreeMap<u32, Vec<OwnedRec>> = BTreeMap::new();
     for (_, txid) in &hits {
-        let (tx, _) = get_tx(&mut c, txid).await?;
+        let (tx, _) = get_tx(c, txid).await?;
         for f in decrypt_ivk(&tx, &a0) {
             let Some(m) = decode_memo(&f.memo).filter(|m| m.kind == K_ACCOUNT) else { continue };
             let Some(idx) = decode_account_record(&m.art) else {
                 println!("  ignored: malformed account index record in {}..", &txid[..12]);
                 continue;
             };
-            let vfvk = FullViewingKey::from(&spending_key(&seed, idx));
+            let vfvk = FullViewingKey::from(&spending_key(seed, idx));
             let Some(cf) = decrypt_ivk(&tx, &vfvk).into_iter().find(|v| carrier::verifier::successor_valid(v, &m.coll, m.num, m.hop).is_ok()) else {
                 println!("  ignored: record in {}.. names vault {idx}, which gets no valid carrier there", &txid[..12]);
                 continue;
@@ -773,7 +803,37 @@ async fn recover(mut c: Client) -> Result<()> {
             }
         }
     }
-    for (idx, recs) in &owned {
+    Ok(RecordScan { owned, from, actions })
+}
+
+/// SPEC 2.1 step 6: the next vault index after every recorded one and every one this STATE has
+/// reserved (`vault_next`), skipping any index that received a note in the scanned range.
+/// ponytail: one buyer process per STATE at a time; a lock file if purchases run concurrently.
+fn next_vault_index(seed: &[u8; 32], scan: &RecordScan) -> Result<u32> {
+    let reserved: u32 = fs::read_to_string(dir().join("vault_next")).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(1);
+    let mut i = scan.owned.keys().next_back().map_or(1, |i| i + 1).max(reserved).max(1);
+    loop {
+        let fvk = FullViewingKey::from(&spending_key(seed, i));
+        let pivk = orchard::keys::PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
+        let used = scan.actions.iter().any(|ca| {
+            let d = orchard::note_encryption::IronwoodDomain::for_compact_action(ca);
+            zcash_note_encryption::try_compact_note_decryption(&d, &pivk, ca).is_some()
+        });
+        if !used {
+            return Ok(i);
+        }
+        println!("  vault index {i} already received a note, skipping");
+        i = i.checked_add(1).ok_or_else(|| anyhow!("vault index overflow"))?;
+    }
+}
+
+/// Seed-only recovery (marketplace SPEC 4.3): scan account 0 from BIRTHDAY (default: Ironwood
+/// activation) for account index records. Reports each item, whether its carrier is still
+/// unspent, and the next free vault index. Read-only.
+async fn recover(mut c: Client) -> Result<()> {
+    let seed = seed()?;
+    let scan = scan_records(&mut c, &seed, env_u64("BIRTHDAY", IRONWOOD_ACTIVATION)?).await?;
+    for (idx, recs) in &scan.owned {
         if recs.iter().any(|r| (r.0, r.1) != (recs[0].0, recs[0].1)) {
             println!("CONFLICT: vault index {idx} is named for different items; all of them listed below");
         }
@@ -781,7 +841,7 @@ async fn recover(mut c: Client) -> Result<()> {
             println!("RECOVERED item #{item} of collection {}.. hop {hop}, vault index {idx}, carrier {}..:{action}, {}", &hex::encode(coll)[..16], &txid[..12], if *live { "unspent (held)" } else { "spent (moved on)" });
         }
     }
-    println!("next vault index: {}", owned.keys().next_back().map_or(1, |i| i + 1));
+    println!("next vault index: {}", next_vault_index(&seed, &scan)?);
     Ok(())
 }
 

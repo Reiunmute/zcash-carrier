@@ -83,3 +83,7 @@ Marketplace SPEC draft 4, sections 4.2 and 4.3. A DRY sale of item #1 of the sea
 - `verify ... walk:1:<txid>` with the buyer's vault key and `WALK_TX_FILE` rebuilds item #1's provenance from the record alone: one hop to issuance, equal to the listed vault key and carrier note. It then fails at R2 (`hop 0: carrier not spent on chain`) because the DRY tx is not mined. The full verdict needs the broadcast in `scripts/run_p4.sh`.
 - Refusals: the seller's key opens no carrier in the DRY tx; a walk from the earlier separate-seed sale stops at once (`hop 3: no vault record`), because records did not exist yet.
 - `carrier recover` on the buyer seed finds no account index records on chain yet (`next vault index: 1`), as expected before the broadcast.
+
+## P8 DRY: automatic vault index (`p8_auto_vault_dry.log`)
+
+`sale-buy` with `BUYER_VAULT_ACCT=auto` on the buyer seed (`BIRTHDAY=4435100`): the first purchase takes vault index 1 (no account index records yet, and index 1 never received a note) and reserves it; a second purchase takes index 2, and its change memo records 2. Separately, with the reservation set to 16, allocation skips 16 (it holds item #1 since tx `281788d7…`) and returns 17. Nothing was broadcast. The local reservation file was deleted after the test, because these DRY PCZTs are discarded.

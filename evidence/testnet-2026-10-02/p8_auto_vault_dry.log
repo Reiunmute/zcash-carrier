@@ -1,0 +1,19 @@
+$ sale-list
+LISTED item #1 hop 0 price 10000 zats expiry 4436603 carrier cmx c361e2d029c3.. in <SALE_DIR>/listing.json
+
+$ BUYER_VAULT_ACCT=auto BIRTHDAY=4435100 sale-buy   (1st)
+scanned 4435100..=4435603: 2 tx(s) pay account 0
+  vault index 1 (auto: 0 recorded vault(s), none of index 1 on chain since 4435100)
+SALE-BUY wrote <SALE_DIR>/sale.pczt (14932 bytes), carrier action 2, pays 10000 zats
+reserved vault_next: 2
+
+$ DRY=1 sale-accept
+SALE-ACCEPT DRY 8c568720b35cb840fdd82f61ef8afa509a55aa15781a9dfabe7f61792ee0e98b (not broadcast, bytes in sale_dry_tx.bin)
+
+$ BUYER_VAULT_ACCT=auto BIRTHDAY=4435100 sale-buy   (2nd: index 1 is reserved by the 1st PCZT)
+  vault index 2 (auto: 0 recorded vault(s), none of index 2 on chain since 4435100)
+SALE-BUY wrote <SALE_DIR>/sale.pczt (14932 bytes), carrier action 0, pays 10000 zats
+reserved vault_next: 3
+
+$ DRY=1 sale-accept
+SALE-ACCEPT DRY f39434859f9e275bec02ab267e6d83c3c6d8989159888eea868a6cdf7655dee4 (not broadcast, bytes in sale_dry_tx.bin)
