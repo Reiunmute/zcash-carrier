@@ -60,7 +60,7 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | Browser network (P6) | grpc-web streaming with Ironwood actions verified on ChainSafe, relay streams | `research/stage1-checks/RESULTS.md` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
 | Marketplace SPEC | draft 4 (draft 3 + X1 to X8), **approved by Ryot 2026-10-02**, default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
-| Web app | not started | none |
+| Web app | design direction from Ryot 2026-10-02 (D6): OpenSea's structure, our own colors and type. Static prototype of every SPEC 7 page and modal, mock data, art drawn from the memo bytes. Not wired to wasm or the order book yet | `docs/marketplace/DESIGN.md`, `web/prototype/` |
 | GitHub | `Reiunmute/zcash-carrier`, **private** | `git remote -v` |
 
 ## 3. Decisions already made (do not reopen without new evidence)
@@ -203,7 +203,7 @@ Remember the multithreading requirements (see `research/stage1-checks/RESULTS.md
 - `wasm-bindgen-rayon`
 - COOP/COEP headers
 
-### Task 6. Web app (SPEC draft 4 approved 2026-10-02; ask for design direction first, D6)
+### Task 6. Web app (SPEC draft 4 approved 2026-10-02; design direction given 2026-10-02, see `docs/marketplace/DESIGN.md`)
 
 Follow the approved SPEC (draft 3 at the time of writing): pages, connect flow with a Noir derived signature, deposit, intent and authenticated disclosure, buy, accept. Prerequisites P4 to P12 come first.
 

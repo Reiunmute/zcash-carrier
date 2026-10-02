@@ -6,6 +6,20 @@
       "runtimeExecutable": "./target/release/orderbook",
       "runtimeArgs": [],
       "port": 8787
+    },
+    {
+      "name": "prototype",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8790",
+        "--directory",
+        "web/prototype",
+        "--bind",
+        "127.0.0.1"
+      ],
+      "port": 8790
     }
   ]
 }

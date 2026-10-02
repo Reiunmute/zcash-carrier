@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>carrier: shielded collectibles (testnet prototype)</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="mark" href="#/">carrier</a>
+  <input class="search" type="search" placeholder="Search collections and items" aria-label="Search">
+  <nav class="nav"><a href="#/" data-nav="explore">Explore</a><a href="#/account" data-nav="account">Account</a></nav>
+  <span class="spacer"></span>
+  <span class="net meta" title="Zcash testnet, Ironwood pool">Testnet</span>
+  <button class="btn primary" id="connect">Connect</button>
+</div></header>
+<main id="app"></main>
+<footer class="foot"><div class="wrap meta">
+  <span>Zcash testnet only. TAZ has no value. Nothing here is for sale for real money.</span>
+  <span>Prototype, 2026-10-02</span>
+</div></footer>
+<div class="scrim" id="scrim" role="dialog" aria-modal="true"><div class="modal" id="modal"></div></div>
+<div class="proto" id="proto" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
