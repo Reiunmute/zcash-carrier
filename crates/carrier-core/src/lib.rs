@@ -64,6 +64,55 @@ pub fn decode_memo(m: &[u8; 512]) -> Option<Memo> {
     })
 }
 
+// ---------- records (marketplace SPEC 4.2, 4.3) ----------
+/// Memo kind of the buyer's change output in a sale: the account index record.
+pub const K_ACCOUNT: u8 = 5;
+pub const PTR_ISSUANCE: u8 = 0;
+pub const PTR_TRANSFER: u8 = 1;
+pub const VAULT_RECORD_LEN: usize = 135;
+
+/// Vault record v1, the payload of a successor's HOP memo: the previous vault's FVK and where
+/// the carrier it held was created.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VaultRecord {
+    pub fvk: [u8; 96],
+    /// `PTR_ISSUANCE` or `PTR_TRANSFER`
+    pub kind: u8,
+    /// protocol byte order
+    pub txid: [u8; 32],
+    pub action: u32,
+}
+
+impl VaultRecord {
+    pub fn encode(&self) -> [u8; VAULT_RECORD_LEN] {
+        let mut r = [0u8; VAULT_RECORD_LEN];
+        r[0] = 0x01;
+        r[1..97].copy_from_slice(&self.fvk);
+        r[97] = self.kind;
+        r[98..130].copy_from_slice(&self.txid);
+        r[130..134].copy_from_slice(&self.action.to_le_bytes());
+        r
+    }
+
+    pub fn decode(b: &[u8]) -> Result<Self> {
+        if b.len() != VAULT_RECORD_LEN || b[0] != 0x01 || b[134] != 0 || b[97] > PTR_TRANSFER {
+            return Err(anyhow!("not a v1 vault record ({} bytes)", b.len()));
+        }
+        Ok(VaultRecord { fvk: b[1..97].try_into()?, kind: b[97], txid: b[98..130].try_into()?, action: u32::from_le_bytes(b[130..134].try_into()?) })
+    }
+}
+
+/// Account index record v1 payload: the ZIP-32 account index of the buyer's new vault.
+pub fn encode_account_record(vault_index: u32) -> [u8; 5] {
+    let mut r = [0x01, 0, 0, 0, 0];
+    r[1..].copy_from_slice(&vault_index.to_le_bytes());
+    r
+}
+
+pub fn decode_account_record(b: &[u8]) -> Option<u32> {
+    (b.len() == 5 && b[0] == 0x01).then(|| u32::from_le_bytes(b[1..].try_into().unwrap()))
+}
+
 // ---------- FINAL hard seal (OPEN_ISSUES #2) ----------
 pub const SEAL_DOMAIN: &str = "carrier:final-seal:v1";
 const SEAL_DIVERSIFIER: &[u8; 11] = b"carrierseal";
@@ -242,5 +291,23 @@ mod tests {
         let m = encode_memo(K_HOP, &[3u8; 32], 5, 2, &[]);
         let d = decode_memo(&m).unwrap();
         assert_eq!((d.kind, d.coll, d.num, d.hop), (K_HOP, [3u8; 32], 5, 2));
+    }
+
+    #[test]
+    fn records_round_trip_and_reject() {
+        let r = VaultRecord { fvk: [4u8; 96], kind: PTR_TRANSFER, txid: [5u8; 32], action: 2 };
+        let b = r.encode();
+        assert_eq!(VaultRecord::decode(&b).unwrap(), r);
+        let in_memo = decode_memo(&encode_memo(K_HOP, &[3u8; 32], 1, 3, &b)).unwrap();
+        assert_eq!(VaultRecord::decode(&in_memo.art).unwrap(), r);
+        for (i, v) in [(0, 2u8), (97, 2), (134, 1)] {
+            let mut bad = b;
+            bad[i] = v;
+            assert!(VaultRecord::decode(&bad).is_err());
+        }
+        assert!(VaultRecord::decode(&b[..134]).is_err());
+        assert!(VaultRecord::decode(&[]).is_err());
+        assert_eq!(decode_account_record(&encode_account_record(17)), Some(17));
+        assert_eq!(decode_account_record(&[0x02, 17, 0, 0, 0]), None);
     }
 }

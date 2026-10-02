@@ -107,6 +107,9 @@ want "$out" "R3 holder opens current carrier: yes, unspent=true"
 want "$out" "VERIFY HELD: item #1"
 run 2 env HOLDER_FVK="$BUYER" $V "$E/collection.json" 4416690 "$E3/package_item1_hop3.json"
 want "$out" "VERIFY FAIL: holder cannot open current carrier"
+# Vault records (marketplace SPEC 4.2) started after this sale, so a record walk stops at once.
+run 2 env HOLDER_FVK="$BUYER2" $V "$E/collection.json" 4416690 "walk:1:$SALE2_TX"
+want "$out" "VERIFY FAIL: hop 3: no vault record"
 
 echo "== FINAL hard seal (new collection, 2026-10-02)"
 run 0 env -u HOLDER_FVK $V "$E3/collection_sealed.json" "$SEAL_GENESIS_H"

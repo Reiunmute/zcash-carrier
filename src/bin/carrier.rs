@@ -50,10 +50,14 @@ struct Acct {
     sak: SpendAuthorizingKey,
     fvk: FullViewingKey,
 }
-fn acct(n: u32) -> Result<Acct> {
-    // OFF shifts every role except the funding wallet (acct 0): fresh collection, no key reuse.
+/// ZIP-32 account index of role `n`. OFF shifts every role except the funding wallet (acct 0):
+/// fresh collection, no key reuse.
+fn acct_index(n: u32) -> u32 {
     let off: u32 = std::env::var("OFF").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    let sk = spending_key(&seed()?, if n == 0 { 0 } else { n + off });
+    if n == 0 { 0 } else { n + off }
+}
+fn acct(n: u32) -> Result<Acct> {
+    let sk = spending_key(&seed()?, acct_index(n));
     Ok(Acct { sak: SpendAuthorizingKey::from(&sk), fvk: FullViewingKey::from(&sk) })
 }
 fn addr(a: &Acct) -> orchard::Address {
@@ -394,6 +398,7 @@ async fn run() -> Result<()> {
         "sale-list" => sale_list(c).await?,
         "sale-buy" => sale_buy(c).await?,
         "sale-accept" => sale_accept(c, dry).await?,
+        "recover" => recover(c).await?,
         // Plain payment from the funding account: send <recipient_fvk_hex> <zats>, funding note in FUND_TX.
         // Used to fund a second, separately held seed (marketplace SPEC P12).
         "send" => {
@@ -418,7 +423,7 @@ async fn run() -> Result<()> {
                 println!("acct{n} fvk {}", fvk_hex(&acct(n)?.fvk));
             }
         }
-        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | sale-list | sale-buy | sale-accept | send <fvk> <zats> | keys"),
+        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | sale-list | sale-buy | sale-accept | send <fvk> <zats> | recover | keys"),
     }
     Ok(())
 }
@@ -529,9 +534,10 @@ fn decrypt_actions<T: orchard::bundle::Authorization>(b: &orchard::Bundle<T, zca
 }
 
 /// Runs R1 to R3 for `pkg` with `holder` (from the collection's genesis height) and returns the
-/// chain index, the held carrier and its hop number. Anything other than HELD is refused.
+/// chain index, the held carrier, its hop number and its Action index. Anything other than HELD
+/// is refused.
 /// `from` lowers the scan start, so notes older than the genesis (a funding note) are covered too.
-async fn verified_carrier(mut c: Client, col: &Collection, pkg: &Package, holder: &FullViewingKey, from: Option<u64>) -> Result<(Chain, Held, u32)> {
+async fn verified_carrier(mut c: Client, col: &Collection, pkg: &Package, holder: &FullViewingKey, from: Option<u64>) -> Result<(Chain, Held, u32, usize)> {
     let (_, gh) = get_tx(&mut c, &col.genesis_txid).await?;
     let gh = gh.ok_or_else(|| anyhow!("genesis tx unmined"))?;
     let mut ch = Chain::index(c, from.map_or(gh, |f| f.min(gh))).await?;
@@ -539,7 +545,8 @@ async fn verified_carrier(mut c: Client, col: &Collection, pkg: &Package, holder
     match verify_item(&mut ch, col, &set, pkg, Some(holder), &mut |l| println!("{l}")).await? {
         Verdict::Held { cur, txid, height, hop } => {
             cross_check(&mut ch).await?;
-            Ok((ch, Held { note: note_to_json(&cur.note), cmx: hex::encode(cur.cmx), height, txid }, hop))
+            let action = cur.action;
+            Ok((ch, Held { note: note_to_json(&cur.note), cmx: hex::encode(cur.cmx), height, txid }, hop, action))
         }
         Verdict::Spent { .. } => bail!("REFUSED: the carrier is already spent"),
         Verdict::Burned { hop, why } => bail!("REFUSED: item burned at hop {hop} ({why})"),
@@ -553,7 +560,7 @@ async fn sale_list(c: Client) -> Result<()> {
     let pkg: Package = load(&std::env::var("PACKAGE").unwrap_or_else(|_| "package_item1.json".into()))?;
     let (seller, pay_acct) = (acct(env_u32("SELLER_ACCT", 3)?)?, acct(env_u32("PAY_ACCT", 5)?)?);
     // The seller lists only what the verifier says it holds.
-    let (ch, held, hop) = verified_carrier(c, &col, &pkg, &seller.fvk, None).await?;
+    let (ch, held, hop, _) = verified_carrier(c, &col, &pkg, &seller.fvk, None).await?;
     let price = env_u64("PRICE", 10_000)?;
     if price == 0 || price > MAX_MONEY {
         bail!("PRICE must be between 1 and {MAX_MONEY} zats");
@@ -588,12 +595,13 @@ async fn sale_buy(c: Client) -> Result<()> {
     let l: Listing = serde_json::from_slice(&read_capped(&listing_path())?)?;
     let lid = listing_id(&l)?;
     let vault = fvk_from_hex(&l.vault_fvk)?;
-    let (a0, bv) = (acct(0)?, acct(env_u32("BUYER_VAULT_ACCT", 6)?)?);
+    let bv_n = env_u32("BUYER_VAULT_ACCT", 6)?;
+    let (a0, bv) = (acct(0)?, acct(bv_n)?);
     let fund_tx = std::env::var("FUND_TX").map_err(|_| anyhow!("set FUND_TX to the tx holding the buyer's funding note"))?;
     let (fund, fh) = find_change(&mut c, &fund_tx, &a0.fvk).await?;
     // Never trust the listing's note: verify the current carrier from chain with the listed key.
     // The scan also starts no later than the funding note, so its liveness check is complete.
-    let (mut ch, held, hop) = verified_carrier(c, &l.collection, &l.package, &vault, Some(fh)).await?;
+    let (mut ch, held, hop, action) = verified_carrier(c, &l.collection, &l.package, &vault, Some(fh)).await?;
     let tip_h = ch.to;
     if tip_h >= l.expiry {
         bail!("listing expired at {} (tip {tip_h})", l.expiry);
@@ -614,14 +622,23 @@ async fn sale_buy(c: Client) -> Result<()> {
     let change = fund.note.value().inner().checked_sub(need).ok_or_else(|| anyhow!("funding note too small"))?;
     let coll = arr32(&l.collection.coll)?;
     let next_hop = hop.checked_add(1).ok_or_else(|| anyhow!("hop overflow"))?;
+    // SPEC 4.2: the successor's memo names the seller's vault key and where its carrier was made,
+    // taken from the chain verification above, not from the listing.
+    let record = VaultRecord {
+        fvk: vault.to_bytes(),
+        kind: if hop == 0 { PTR_ISSUANCE } else { PTR_TRANSFER },
+        txid: txid_bytes(&held.txid)?,
+        action: u32::try_from(action)?,
+    };
     let outs = [
         // 0: successor carrier, must share the carrier spend's Action. The buyer's own OVK, so
         //    the seller cannot recover the buyer's new vault address from chain.
-        Out { to: addr(&bv), value: 0, memo: encode_memo(K_HOP, &coll, l.item, next_hop, &[]), ovk: ovk(&bv) },
+        Out { to: addr(&bv), value: 0, memo: encode_memo(K_HOP, &coll, l.item, next_hop, &record.encode()), ovk: ovk(&bv) },
         // 1: payment to the listing's pay address
         Out { to: pay, value: pay_value, memo: empty_memo(), ovk: ovk(&a0) },
-        // 2: buyer change; the buyer pays the fee
-        Out { to: addr(&a0), value: change, memo: empty_memo(), ovk: ovk(&a0) },
+        // 2: buyer change, present even at zero value; the buyer pays the fee. Its memo is the
+        //    account index record (SPEC 4.3), so the buyer's seed alone finds the new vault.
+        Out { to: addr(&a0), value: change, memo: encode_memo(K_ACCOUNT, &coll, l.item, next_hop, &encode_account_record(acct_index(bv_n))), ovk: ovk(&a0) },
     ];
     let (cpath, anchor) = witness(&mut ch.c, &ccmx, l.carrier.height, tip_h).await?;
     let (fpath, fanchor) = witness(&mut ch.c, &fund.cmx, fh, tip_h).await?;
@@ -849,6 +866,69 @@ async fn sale_accept(c: Client, dry: bool) -> Result<()> {
     save(&format!("package_item{}_hop{}.json", l.item, pkg.hops.len()), &pkg)?;
     save("sale.json", &serde_json::json!({ "txid": txid, "carrier_action": ai, "successor_cmx": succ }))?;
     println!("SALE-ACCEPT {txid}");
+    Ok(())
+}
+
+/// Seed-only recovery (marketplace SPEC 4.3): scan account 0 from BIRTHDAY (default: Ironwood
+/// activation) for account index records. A record is accepted only if its tx gives the vault it
+/// names a valid successor carrier (R2) for the same item and hop. Reports each item, whether its
+/// carrier is still unspent, and the next free vault index. Read-only.
+async fn recover(mut c: Client) -> Result<()> {
+    use std::collections::{BTreeMap, BTreeSet, HashSet};
+    let seed = seed()?;
+    let a0 = FullViewingKey::from(&spending_key(&seed, 0));
+    let pivk = orchard::keys::PreparedIncomingViewingKey::new(&a0.to_ivk(Scope::External));
+    let (from, to) = (env_u64("BIRTHDAY", 4_134_000)?, tip(&mut c).await?);
+    let (mut hits, mut nfs) = (BTreeSet::new(), HashSet::new());
+    let mut s = from;
+    while s <= to {
+        let e = s.saturating_add(9_999).min(to);
+        for b in blocks(&mut c, s, e).await? {
+            for tx in &b.vtx {
+                for a in &tx.ironwood_actions {
+                    nfs.insert(a.nullifier.clone());
+                    let ca = orchard::note_encryption::CompactAction::try_from(a).map_err(|e| anyhow!("compact action: {e:?}"))?;
+                    let d = orchard::note_encryption::IronwoodDomain::for_compact_action(&ca);
+                    if zcash_note_encryption::try_compact_note_decryption(&d, &pivk, &ca).is_some() {
+                        hits.insert((b.height, txid_hex(&tx.txid)));
+                    }
+                }
+            }
+        }
+        s = e + 1;
+    }
+    println!("scanned {from}..={to}: {} tx(s) pay account 0", hits.len());
+    // vault index -> accepted (collection, item, hop, carrier txid, action, unspent)
+    let mut owned: BTreeMap<u32, Vec<([u8; 32], u32, u32, String, usize, bool)>> = BTreeMap::new();
+    for (_, txid) in &hits {
+        let (tx, _) = get_tx(&mut c, txid).await?;
+        for f in decrypt_ivk(&tx, &a0) {
+            let Some(m) = decode_memo(&f.memo).filter(|m| m.kind == K_ACCOUNT) else { continue };
+            let Some(idx) = decode_account_record(&m.art) else {
+                println!("  ignored: malformed account index record in {}..", &txid[..12]);
+                continue;
+            };
+            let vfvk = FullViewingKey::from(&spending_key(&seed, idx));
+            let Some(cf) = decrypt_ivk(&tx, &vfvk).into_iter().find(|v| carrier::verifier::successor_valid(v, &m.coll, m.num, m.hop).is_ok()) else {
+                println!("  ignored: record in {}.. names vault {idx}, which gets no valid carrier there", &txid[..12]);
+                continue;
+            };
+            let live = !nfs.contains(&cf.note.nullifier(&vfvk).to_bytes().to_vec());
+            let e = owned.entry(idx).or_default();
+            if !e.iter().any(|x| x.3 == *txid) {
+                e.push((m.coll, m.num, m.hop, txid.clone(), cf.action, live));
+            }
+        }
+    }
+    for (idx, recs) in &owned {
+        if recs.iter().any(|r| (r.0, r.1) != (recs[0].0, recs[0].1)) {
+            println!("CONFLICT: vault index {idx} is named for different items; all of them listed below");
+        }
+        for (coll, item, hop, txid, action, live) in recs {
+            println!("RECOVERED item #{item} of collection {}.. hop {hop}, vault index {idx}, carrier {}..:{action}, {}", &hex::encode(coll)[..16], &txid[..12], if *live { "unspent (held)" } else { "spent (moved on)" });
+        }
+    }
+    println!("next vault index: {}", owned.keys().next_back().map_or(1, |i| i + 1));
     Ok(())
 }
 

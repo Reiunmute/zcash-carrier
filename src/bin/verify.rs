@@ -4,17 +4,20 @@
 //!
 //! Usage:
 //!   verify <collection.json> <from_height> [<package.json> [claimed_txid...]]   (HOLDER_FVK=<hex> for R3)
+//!   verify <collection.json> <from_height> walk:<item>:<txid>   (HOLDER_FVK required)
+//!       rebuilds the package from vault records (marketplace SPEC 4.2), starting at the holder's
+//!       carrier created in <txid>; WALK_TX_FILE=<raw tx file> reads that tx from a file (DRY)
 //!   verify payment <txid> <fvk_hex> <expected_zats>
 //!   verify mined <txid>
 //!   verify payment-file <raw_tx_hex_file> <txid> <fvk_hex> <expected_zats>
 //!
 //! Exit codes: 0 held (or no package), 2 fail, 3 burned, 4 spent, 5 unverified (no holder key).
 use anyhow::{anyhow, bail, Result};
-use carrier::verifier::{self, cross_check, issuance_set, paid_to, verify_item, Chain, ChainSource, Verdict};
+use carrier::verifier::{self, cross_check, issuance_set, paid_to, verify_item, walk_records, Chain, ChainSource, Verdict};
 use carrier::*;
 use std::fs;
 
-const USAGE: &str = "usage: verify <collection.json> <from_height> [<package.json> [claimed_txid...]] | verify payment <txid> <fvk_hex> <expected_zats> | verify mined <txid> | verify payment-file <hex_file> <txid> <fvk_hex> <expected_zats>";
+const USAGE: &str = "usage: verify <collection.json> <from_height> [<package.json> | walk:<item>:<txid> [claimed_txid...]] | verify payment <txid> <fvk_hex> <expected_zats> | verify mined <txid> | verify payment-file <hex_file> <txid> <fvk_hex> <expected_zats>";
 
 fn load<T: serde::de::DeserializeOwned>(p: &str) -> Result<T> {
     Ok(serde_json::from_slice(&read_capped(std::path::Path::new(p))?)?)
@@ -105,9 +108,29 @@ async fn run() -> Result<i32> {
         cross_check(&mut ch).await?;
         return Ok(0);
     };
-    let pkg: Package = load(pp)?;
-    println!("== package item #{} ({})", pkg.item, pkg.label);
     let holder = std::env::var("HOLDER_FVK").ok().map(|h| fvk_from_hex(&h)).transpose()?;
+    let pkg: Package = match pp.strip_prefix("walk:") {
+        None => load(pp)?,
+        Some(w) => {
+            let (item, txid) = w.split_once(':').ok_or_else(|| anyhow!(USAGE))?;
+            let hf = holder.as_ref().ok_or_else(|| anyhow!("walk: needs HOLDER_FVK"))?;
+            let start = match std::env::var("WALK_TX_FILE") {
+                Ok(f) => {
+                    let tx = zcash_primitives::transaction::Transaction::read(&read_capped(std::path::Path::new(&f))?[..], zcash_protocol::consensus::BranchId::Nu6_3)?;
+                    if tx.txid().to_string() != txid {
+                        bail!("{f} hashes to {}, not {txid}", tx.txid());
+                    }
+                    tx.ironwood_bundle().cloned().ok_or_else(|| anyhow!("{f} has no Ironwood bundle"))?
+                }
+                Err(_) => ch.tx(txid).await?.0,
+            };
+            let pkg = walk_records(&mut ch, &col, &set, item.parse()?, &start, hf, &mut |l| println!("{l}")).await?;
+            fs::write(format!("out/package_item{}_walk.json", pkg.item), serde_json::to_string_pretty(&pkg)?)?;
+            println!("record walk: {} hop(s) rebuilt to issuance, written to out/package_item{}_walk.json", pkg.hops.len(), pkg.item);
+            pkg
+        }
+    };
+    println!("== package item #{} ({})", pkg.item, pkg.label);
     let verdict = verify_item(&mut ch, &col, &set, &pkg, holder.as_ref(), &mut |l| println!("{l}")).await?;
     let code = match &verdict {
         Verdict::Held { cur, .. } => {

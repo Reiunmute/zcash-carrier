@@ -1,0 +1,51 @@
+$ STATE=state OFF=30 FILES_DIR=state/c2 SELLER_ACCT=2 PAY_ACCT=5 PACKAGE=package_item1.json carrier sale-list
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+LISTED item #1 hop 0 price 10000 zats expiry 4436576 carrier cmx c361e2d029c3.. in <SALE_DIR>/listing.json
+
+$ STATE=state/buyer OFF=10 FUND_TX=281788d7... BUYER_VAULT_ACCT=7 carrier sale-buy
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+  verified from chain: item #1 hop 0, carrier c361e2d029c3.. held by the listed vault key, unspent
+  attempt 1: bound ok, carrier action 0, funding action 2
+  pczt expiry_height 4435597
+  proving key 0.9s, proof 0.7s
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/sale.pczt (14932 bytes), carrier action 0, pays 10000 zats
+
+$ DRY=1 STATE=state OFF=30 FILES_DIR=state/c2 SELLER_ACCT=2 PAY_ACCT=5 carrier sale-accept
+  checks ok: carrier unspent, listing open, expiry 4435597 (tip 4435576), branch 37a5165b, 3 actions, carrier spend in action 0, payment 10000 zats
+  extracted tx 899c8aad16a445102f63b9893032736a189d05f06a08f12383e6175f043d950a: 3 actions, 12322 bytes, successor cmx 6b79b3afc016..
+SALE-ACCEPT DRY 899c8aad16a445102f63b9893032736a189d05f06a08f12383e6175f043d950a (not broadcast, bytes in sale_dry_tx.bin)
+
+$ FVK=<buyer seed acct0> memos <SALE_DIR>/sale_dry_tx.bin   # change output
+action 1 value 250000 kind 5 item 1 hop 1 payload 5B account_record Some(17) vault_record_ok false
+
+$ FVK=<buyer seed acct7> memos <SALE_DIR>/sale_dry_tx.bin   # successor carrier
+action 0 value 0 kind 3 item 1 hop 1 payload 135B account_record None vault_record_ok true
+
+$ HOLDER_FVK=<buyer seed acct7> WALK_TX_FILE=<SALE_DIR>/sale_dry_tx.bin verify state/c2/collection.json 4435127 walk:1:899c8aad16a445102f63b9893032736a189d05f06a08f12383e6175f043d950a
+== collection 5fc17ef389fdae9b
+R1 issuance set: 2 item(s), finalized=true, sealed=true
+   #1 cmx c361e2d029c3.. art 386B in 7eab6bd6bee4..
+   #2 cmx ee837d517a2e.. art 386B in 512832b969c8..
+record walk: hop 1 <- 7eab6bd6bee4..:0 (issuance)
+record walk: 1 hop(s) rebuilt to issuance, written to out/package_item1_walk.json
+== package item #1 (rebuilt from vault records)
+VERIFY FAIL: hop 0: carrier not spent on chain
+exit 2
+rebuilt package: 1 hop(s); vault key == listed vault key: True; note == listed carrier: True
+
+$ HOLDER_FVK=<seller acct2, index 32> WALK_TX_FILE=<SALE_DIR>/sale_dry_tx.bin verify state/c2/collection.json 4435127 walk:1:899c8aad16a445102f63b9893032736a189d05f06a08f12383e6175f043d950a
+VERIFY FAIL: the holder key opens no HOP carrier of item #1 in the start tx
+exit 2
+
+$ HOLDER_FVK=<buyer seed acct6> verify evidence/testnet-2026-09-29/collection.json 4416690 walk:1:281788d7...
+VERIFY FAIL: hop 3: no vault record (made before records existed); verify with the provenance package
+
+$ STATE=state/buyer BIRTHDAY=4435100 carrier recover
+scanned 4435100..=4435576: 2 tx(s) pay account 0
+next vault index: 1

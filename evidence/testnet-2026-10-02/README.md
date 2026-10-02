@@ -75,3 +75,11 @@ P9, FINAL hard seal: `broadcast/V_sealed.log` shows `R1 issuance set: 2 item(s),
 Files: `broadcast/*.log` (command output, exchange directory shown as `<SALE_DIR>`), `broadcast/txids.txt`, `package_item1_hop3.json` (provenance for the new holder), `collection_sealed.json` and `final_sealed.json` (the sealed collection's public record), `sale_tx.hex` (raw bytes of tx B), `viewing_keys.json` (the buyer seed's viewing keys, view only).
 
 `verify.sh` re-checks all of this: the new holder (HELD), the former holder (SPENT or cannot open), the payment from `sale_tx.hex`, and `sealed=true`.
+
+## P4 DRY: vault records and account index records (`p4_dry_records.log`)
+
+Marketplace SPEC draft 4, sections 4.2 and 4.3. A DRY sale of item #1 of the sealed collection `5fc17ef389fdae9b`: seller `STATE=state OFF=30` acct2 (index 32), buyer the separate seed's fresh vault acct7 (index 17). Nothing was broadcast.
+- The successor's HOP memo carries a 135-byte v1 vault record (the seller's vault FVK, pointer kind issuance, the genesis tx and Action). The buyer's change memo (250,000 zats) has kind `ACCOUNT` (5) with vault index 17. Decoded with `examples/memos.rs`.
+- `verify ... walk:1:<txid>` with the buyer's vault key and `WALK_TX_FILE` rebuilds item #1's provenance from the record alone: one hop to issuance, equal to the listed vault key and carrier note. It then fails at R2 (`hop 0: carrier not spent on chain`) because the DRY tx is not mined. The full verdict needs the broadcast in `scripts/run_p4.sh`.
+- Refusals: the seller's key opens no carrier in the DRY tx; a walk from the earlier separate-seed sale stops at once (`hop 3: no vault record`), because records did not exist yet.
+- `carrier recover` on the buyer seed finds no account index records on chain yet (`next vault index: 1`), as expected before the broadcast.

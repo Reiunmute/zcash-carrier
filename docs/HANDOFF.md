@@ -51,7 +51,8 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | Codex review | first review 14 findings; re-review counted 3 fixed and 11 partly fixed. Code-level follow-ups done 2026-10-02; design-level items proposed as SPEC changes (section 15, not approved) | `docs/research/codex-review-2026-10-02.md`, `docs/research/codex-review-2026-10-02-rereview.md` |
 | lightwalletd trust | one server. txid, hash-link and compact/full checks done; `LWD2` content cross-check implemented, no independent second server reachable yet; no proof-of-work validation | OPEN_ISSUES #5 |
 | FINAL hard seal | done on testnet 2026-10-02: collection `5fc17ef389fdae9b`, FINAL tx `512832b969c8…`, R1 `sealed=true` | OPEN_ISSUES #2, `evidence/testnet-2026-10-02/` |
-| P5 Action counts | measured 2026-10-02; proposal for a 3-Action sale | `research/p5-action-counts-2026-10-02.md` |
+| P5 Action counts | measured 2026-10-02; the 3-Action sale shape is in SPEC draft 4 | `research/p5-action-counts-2026-10-02.md` |
+| Vault and account index records (P4) | implemented 2026-10-02: `sale-buy` writes both records, `verify <collection> <from> walk:<item>:<txid>` rebuilds provenance from records, `carrier recover` finds owned items from the seed alone. DRY-tested only; the on-chain test is one broadcast (`scripts/run_p4.sh`, needs Ryot's approval) | `evidence/testnet-2026-10-02/p4_dry_records.log` |
 | Core crate (P7) | `crates/carrier-core`: formats, keys, decryption, rules R1 to R3, vault signatures, collectibles seed. Builds for native and wasm32; `crates/carrier-wasm` exports pure functions, and `verify.sh` checks JavaScript results match native. PCZT path still native | `crates/carrier-core/`, `crates/carrier-wasm/` |
 | Browser network (P6) | grpc-web streaming with Ironwood actions verified on ChainSafe, relay streams | `research/stage1-checks/RESULTS.md` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
@@ -132,7 +133,7 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 
 ## 5. Next tasks, in order
 
-> 2026-10-02: Tasks 1 and 2 are done. From here the work follows `docs/marketplace/SPEC.md` draft 3 section 9 (prerequisites P4 to P9; P3 is done). Tasks 3 to 5 below map to P6, P9 and P7.
+> 2026-10-02: Tasks 1 to 4 are done, task 5 is done except the PCZT path. From here the work follows `docs/marketplace/SPEC.md` draft 4 section 9: open prerequisites are P4 (on-chain test), P5 (anchor age), P8, P10 and P11.
 
 Each task lists its exit criteria. Do not start the web app (task 6) before Ryot approves the marketplace SPEC.
 
@@ -186,7 +187,7 @@ Send FINAL to an address with no known spending key, for example a nothing-up-my
 
 ### Task 5. Core crate for native and WASM
 
-> Status 2026-10-02: done for everything except the PCZT sale path. `carrier-core` holds no network or file code and does not depend on `zcash_primitives` (whose transparent support pulls `secp256k1-sys`, C code that Apple clang cannot compile for wasm32). Rules take Ironwood bundles; the CLI extracts them from transactions. Next: a wasm-capable C compiler (for example Homebrew LLVM, a large download that needs Ryot's OK) to bring the PCZT path to the browser, then wasm-bindgen exports.
+> Status 2026-10-02: done for everything except the PCZT sale path. `carrier-core` holds no network or file code and does not depend on `zcash_primitives` (whose transparent support pulls `secp256k1-sys`, C code that Apple clang cannot compile for wasm32). Rules take Ironwood bundles; the CLI extracts them from transactions. Next: a wasm-capable C compiler to bring the PCZT path to the browser, then wasm-bindgen exports. Ryot approved Homebrew LLVM on 2026-10-02, but Homebrew is not installed and installing it needs sudo; the alternative is the official wasi-sdk release (no sudo), which needs his OK as a different download.
 
 Extract memo format, key derivation, binding builder, and verifier into `carrier-core`, compiling to native and `wasm32-unknown-unknown`. Keep `carrier` and `verify` as thin CLIs over it. Exit: `verify.sh` is still green, and the WASM build compiles.
 
@@ -196,7 +197,7 @@ Remember the multithreading requirements (see `research/stage1-checks/RESULTS.md
 - `wasm-bindgen-rayon`
 - COOP/COEP headers
 
-### Task 6. Web app (SPEC draft 3 approved 2026-10-02; ask for design direction first, D6)
+### Task 6. Web app (SPEC draft 4 approved 2026-10-02; ask for design direction first, D6)
 
 Follow the approved SPEC (draft 3 at the time of writing): pages, connect flow with a Noir derived signature, deposit, intent and authenticated disclosure, buy, accept. Prerequisites P4 to P12 come first.
 

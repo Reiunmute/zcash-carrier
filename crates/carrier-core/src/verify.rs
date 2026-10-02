@@ -237,6 +237,62 @@ pub fn successor_valid(f: &Found, coll: &[u8; 32], item: u32, hop: u32) -> std::
     Ok(())
 }
 
+/// Walk limits (marketplace SPEC 4.2).
+pub const MAX_WALK_HOPS: usize = 10_000;
+pub const MAX_WALK_BYTES: usize = 2 << 20;
+
+/// SPEC 4.2. Rebuilds the provenance package of `item` from vault records alone, starting at the
+/// carrier `holder` opens in `start` (the bundle of the tx that created it). Each step requires
+/// that the carrier a record points to is the one spent in the Action that created the next
+/// carrier. The result is an ordinary package: check it with `verify_item`.
+pub async fn walk_records<C: ChainSource>(ch: &mut C, col: &Collection, set: &IssuanceSet, item: u32, start: &IwBundle, holder: &FullViewingKey, log: &mut dyn FnMut(String)) -> Result<Package> {
+    let coll = coll_of(col)?;
+    let issued = set.items.iter().find(|i| i.num == item).ok_or_else(|| anyhow!("item #{item} not in the issuance set"))?;
+    let is_hop = |f: &Found| decode_memo(&f.memo).filter(|m| m.kind == K_HOP && m.coll == coll && m.num == item);
+    let mut cur = decrypt_bundle_ivk(Some(start), holder)
+        .into_iter()
+        .find(|f| is_hop(f).is_some())
+        .ok_or_else(|| anyhow!("the holder key opens no HOP carrier of item #{item} in the start tx"))?;
+    let (mut hops, mut seen, mut bytes) = (vec![], std::collections::HashSet::new(), 0usize);
+    loop {
+        let m = is_hop(&cur).ok_or_else(|| anyhow!("record walk: a pointer names a note that is not a HOP carrier of item #{item}"))?;
+        if m.art.is_empty() {
+            bail!("hop {}: no vault record (made before records existed); verify with the provenance package", m.hop);
+        }
+        let r = VaultRecord::decode(&m.art).map_err(|e| anyhow!("hop {}: {e}", m.hop))?;
+        if !seen.insert((r.txid, r.action)) || hops.len() >= MAX_WALK_HOPS {
+            bail!("record walk: pointer cycle or more than {MAX_WALK_HOPS} hops");
+        }
+        let fvk = FullViewingKey::from_bytes(&r.fvk).ok_or_else(|| anyhow!("hop {}: bad FVK in vault record", m.hop))?;
+        let ptxid = txid_hex(&r.txid);
+        let (ptx, _) = ch.tx(&ptxid).await?;
+        let found = decrypt_bundle_ivk(Some(&ptx), &fvk);
+        bytes += found.len() * 512;
+        if bytes > MAX_WALK_BYTES {
+            bail!("record walk: more than {MAX_WALK_BYTES} bytes decrypted");
+        }
+        let prev = found
+            .into_iter()
+            .find(|f| f.action == r.action as usize)
+            .ok_or_else(|| anyhow!("hop {}: the record's key cannot open action {} of {}", m.hop, r.action, &ptxid[..12]))?;
+        // The Action that created `cur` must have spent `prev` (same-Action binding, R2).
+        if prev.note.nullifier(&fvk).to_bytes() != cur.spent_nf {
+            bail!("hop {}: the record names a carrier that the successor's Action did not spend", m.hop);
+        }
+        log(format!("record walk: hop {} <- {}..:{} ({})", m.hop, &ptxid[..12], r.action, if r.kind == PTR_ISSUANCE { "issuance" } else { "transfer" }));
+        hops.push(Hop { note: note_to_json(&prev.note), vault_fvk: fvk_hex(&fvk) });
+        if r.kind == PTR_ISSUANCE {
+            if (prev.cmx, prev.action, ptxid.as_str()) != (issued.cmx, issued.action, issued.txid.as_str()) {
+                bail!("record walk: the issuance pointer does not name item #{item}'s issued carrier");
+            }
+            break;
+        }
+        cur = prev;
+    }
+    hops.reverse();
+    Ok(Package { item, label: "rebuilt from vault records".into(), hops })
+}
+
 fn burned(item: u32, hop: usize, why: String, log: &mut dyn FnMut(String)) -> Verdict {
     log(format!("R2 hop {hop}: successor invalid ({why})"));
     log(format!("VERIFY BURNED: item #{item} burned at hop {hop}; later hops ignored"));
