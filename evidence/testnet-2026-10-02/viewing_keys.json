@@ -1,0 +1,12 @@
+{
+  "note": "Full viewing keys of the separate buyer seed (state/buyer) used in the 2026-10-02 sale. Viewing only: they cannot spend.",
+  "network": "test",
+  "buyer_acct0": {
+    "role": "buyer seed funding (received 300,000 zats in tx A, paid the sale)",
+    "fvk": "09531bc013ab0737eb485b59a5bf8925d2a39173f35143e082566c52726cee24a577e5ee036d75b7a7113130f598e61fb284f1dad99ee4eaeddd2e3ce850441d0db192598306b385b6e2dcca1459782df9ce51d292f82631b130d553ba53ea1c"
+  },
+  "buyer_acct6": {
+    "role": "buyer seed vault, holds item #1 since tx B",
+    "fvk": "b007839319a24c0a0def19d0b407a7cb0e96b00041741428b1f565b398c2022e527dd0cbc2aa568a661e94f89b1b3166acf4bde1b9b6b1d755ec54a549dcb30647c84fe4475822a924d160227e5d16dbc373c3823b17ef0f5be823e81c9cd71e"
+  }
+}

@@ -24,7 +24,7 @@ bash verify.sh             # gate. Run after every code change. Must print "VERI
 5. **Never sell or offer testnet assets.** Ironwood pool only. Do not use the transparent pool for carriers.
 6. **Do not collect lists pairing social accounts with Zcash addresses.**
 7. **Do not modify `evidence/testnet-2026-09-29/`.** It is the public record of the run. New runs get a new dated folder.
-8. **Implement `docs/marketplace/SPEC.md` only as approved.** Draft 3 was approved by Ryot on 2026-10-02 with the default decisions D2 to D8. Any change to the SPEC needs his approval again. Ask for design direction before any UI work (D6).
+8. **Implement `docs/marketplace/SPEC.md` only as approved.** Draft 4 (draft 3 plus X1 to X8) was approved by Ryot on 2026-10-02, with the default decisions D2 to D8. Any change to the SPEC needs his approval again. Ask for design direction before any UI work (D6).
 
 ## Conventions
 

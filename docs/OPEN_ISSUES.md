@@ -18,7 +18,7 @@ To test:
 - Send FINAL to an address derived from a nothing-up-my-sleeve point with no known spending key. Show that no one can spend it.
 - Or publish the proof that the FINAL note's nullifier has appeared: spend it into nothing, so no unspent successor can exist.
 
-> Status 2026-10-02: implemented, not yet on chain. `seal_address(coll)` in `src/lib.rs` is an address whose transmission key is a hash-to-curve point of the collection id, so nobody knows its spending key. `carrier final` with `SEAL=1` sends FINAL there; R1 finds it through the issuer OVK and reports `sealed=true`. The testnet run is step C of `scripts/run_p9_p12.sh` (marketplace SPEC P9).
+> Status: **closed 2026-10-02 on testnet**. Collection `5fc17ef389fdae9b`, FINAL in tx `512832b969c8…` (height 4435129); `verify.sh` checks `sealed=true`. Implementation: `seal_address(coll)` in `src/lib.rs` is an address whose transmission key is a hash-to-curve point of the collection id, so nobody knows its spending key. `carrier final` with `SEAL=1` sends FINAL there; R1 finds it through the issuer OVK and reports `sealed=true`. The testnet run is step C of `scripts/run_p9_p12.sh` (marketplace SPEC P9).
 
 ## 3. Atomic sale
 

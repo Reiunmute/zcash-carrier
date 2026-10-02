@@ -47,15 +47,15 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | Attacks: double spend, forged successor, mint after FINAL | all rejected (node / verifier / verifier) | README table |
 | Artwork on chain | byte-identical rebuild | `scripts/render_from_chain.py` |
 | Verifier successor-validity rule | done 2026-09-30 (OPEN_ISSUES #7 closed) | `verify.sh` |
-| Atomic sale via PCZT | mined on testnet 2026-09-30 (CLI; one local seed, roles separated in code). Hardened and DRY-tested 2026-10-02: buyer verifies first, full redaction, 9 negative checks incl. seller tamper | `evidence/testnet-2026-09-30/`, `evidence/testnet-2026-10-02/`, `verify.sh` |
+| Atomic sale via PCZT | mined on testnet 2026-09-30 (CLI; one local seed, roles separated in code), and **between separately held seeds** on 2026-10-02 (tx `281788d78f3e…`, item #1 now held by the buyer seed's acct6). Hardened and DRY-tested 2026-10-02: buyer verifies first, full redaction, 9 negative checks incl. seller tamper | `evidence/testnet-2026-09-30/`, `evidence/testnet-2026-10-02/`, `verify.sh` |
 | Codex review | first review 14 findings; re-review counted 3 fixed and 11 partly fixed. Code-level follow-ups done 2026-10-02; design-level items proposed as SPEC changes (section 15, not approved) | `docs/research/codex-review-2026-10-02.md`, `docs/research/codex-review-2026-10-02-rereview.md` |
 | lightwalletd trust | one server. txid, hash-link and compact/full checks done; `LWD2` content cross-check implemented, no independent second server reachable yet; no proof-of-work validation | OPEN_ISSUES #5 |
-| FINAL hard seal | implemented (`seal_address`, `SEAL=1`, R1 `sealed=`), not yet on chain | OPEN_ISSUES #2, `scripts/run_p9_p12.sh` |
+| FINAL hard seal | done on testnet 2026-10-02: collection `5fc17ef389fdae9b`, FINAL tx `512832b969c8…`, R1 `sealed=true` | OPEN_ISSUES #2, `evidence/testnet-2026-10-02/` |
 | P5 Action counts | measured 2026-10-02; proposal for a 3-Action sale | `research/p5-action-counts-2026-10-02.md` |
 | Core crate (P7) | `crates/carrier-core`: formats, keys, decryption, rules R1 to R3, vault signatures, collectibles seed. Builds for native and wasm32; `crates/carrier-wasm` exports pure functions, and `verify.sh` checks JavaScript results match native. PCZT path still native | `crates/carrier-core/`, `crates/carrier-wasm/` |
 | Browser network (P6) | grpc-web streaming with Ironwood actions verified on ChainSafe, relay streams | `research/stage1-checks/RESULTS.md` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
-| Marketplace SPEC | draft 3, **approved by Ryot 2026-10-02** with the default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
+| Marketplace SPEC | draft 4 (draft 3 + X1 to X8), **approved by Ryot 2026-10-02**, default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
 | Web app | not started | none |
 | GitHub | `Reiunmute/zcash-carrier`, **private** | `git remote -v` |
 
@@ -101,13 +101,21 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
   | acct3 | buyer vault in the 2026-09-29 transfer, seller in the 2026-09-30 sale | 3+OFF |
   | acct4 | vault of item #2 | 4+OFF |
   | acct5 | seller pay address in the sale | 5+OFF |
-  | acct6 | buyer's new vault in the 2026-09-30 sale (holds item #1 now) | 6+OFF |
+  | acct6 | buyer's new vault in the 2026-09-30 sale, seller in the 2026-10-02 sale | 6+OFF |
   | acct7 | buyer vault for DRY sale tests from 2026-10-02 (holds nothing) | 7+OFF |
 
   The FVKs of acct0, acct3, acct5 and acct6 are published in `evidence/testnet-2026-09-30/viewing_keys.json` so `verify.sh` runs fully without the seed.
 
+  Separate buyer seed (`STATE=state/buyer OFF=10`, created 2026-10-02): acct0 funding, acct6 holds item #1 since the 2026-10-02 sale. Its FVKs are in `evidence/testnet-2026-10-02/viewing_keys.json`.
+
+  Sealed test collection `5fc17ef389fdae9b` (`STATE=state OFF=30 FILES_DIR=state/c2`): issuer acct1 (index 31), item #1 vault acct2 (index 32), item #2 vault acct4 (index 34). Funding is still the main seed's acct0.
+
   `carrier keys` prints the FVKs. FVKs are fine to show. Never print spending keys.
-- **Funds:** faucet 10,000,000 zats. 2026-09-30, checked against nullifiers up to height 4425656: acct0 holds 9,885,000 zats in action 1 of the sale tx `6bdeb823…`, and acct5 holds the 10,000 zat sale payment. `carrier sale-buy` requires `FUND_TX`; use `FUND_TX=6bdeb823ff6556dce7ef8c254c8ceaa257913cc820c43da271c52dabdc98ba5b` for the next sale. The 2026-10-02 DRY tests spent nothing.
+- **Funds:** faucet 10,000,000 zats. Checked 2026-10-02 against nullifiers up to height 4435339 (scratch read-only scan):
+  - main seed acct0: 9,545,000 zats, action 2 of `512832b9…` (C2 change). Use `FUND_TX=512832b969c897752116be1649d5a982ad2a82e34199bc1d1e9f11bfef9b68f3`.
+  - buyer seed acct0: 275,000 zats, action 2 of `281788d7…` (sale change). Use `FUND_TX=281788d78f3e8ab39b208373c9810d0e0383c2cf54beb1b342dfe5bb03c4bf98` with `STATE=state/buyer`.
+  - main seed acct5: 20,000 zats, the two 10,000 zat sale payments (`6bdeb823…`, `281788d7…`).
+  - Fees paid on 2026-10-02: 10,000 (A), 15,000 each (B, C1, C2).
 - **Faucets:**
   - `scripts/claim_jino.py <addr>` (jinolabs, sha256 PoW, 0.1 TAZ).
   - The Valar faucet has a global daily cap and returned 429.

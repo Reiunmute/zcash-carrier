@@ -1,0 +1,16 @@
+== collection c7fe2aeadb5a6200
+R1 issuance set: 2 item(s), finalized=true, sealed=false
+   #1 cmx 97bfffed0864.. art 386B in 82562648ae64..
+   #2 cmx 81154f6b9c1a.. art 386B in b193c439841d..
+== package item #1 (genuine)
+R2 hop 0: spent in 45056894d3e1..@4416737, successor cmx b36afb0725fe.. (same action)
+R2 hop 0: successor valid (HOP, value 0)
+R2 hop 1: spent in 6bdeb823ff65..@4425592, successor cmx 5cb2cdaab67c.. (same action)
+R2 hop 1: successor valid (HOP, value 0)
+R2 hop 2: spent in 281788d78f3e..@4435126, successor cmx 6adf7001ec7d.. (same action)
+== current carrier cmx 6adf7001ec7d..
+R2 hop 2: successor valid (HOP, value 0)
+R3 holder opens current carrier: yes, unspent=true
+VERIFY HELD: item #1 is held by the given key, unspent
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+exit 0

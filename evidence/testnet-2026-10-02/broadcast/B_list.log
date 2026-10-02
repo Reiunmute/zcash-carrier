@@ -1,0 +1,8 @@
+R2 hop 0: spent in 45056894d3e1..@4416737, successor cmx b36afb0725fe.. (same action)
+R2 hop 0: successor valid (HOP, value 0)
+R2 hop 1: spent in 6bdeb823ff65..@4425592, successor cmx 5cb2cdaab67c.. (same action)
+== current carrier cmx 5cb2cdaab67c..
+R2 hop 1: successor valid (HOP, value 0)
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+LISTED item #1 hop 2 price 10000 zats expiry 4436125 carrier cmx 5cb2cdaab67c.. in <SALE_DIR>/listing.json

@@ -14,11 +14,15 @@ cd "$(dirname "$0")"
 
 E=evidence/testnet-2026-09-29
 E2=evidence/testnet-2026-09-30
+E3=evidence/testnet-2026-10-02
+SALE2_TX=281788d78f3e8ab39b208373c9810d0e0383c2cf54beb1b342dfe5bb03c4bf98   # separate-seed sale
+SEAL_GENESIS_H=4435127                                                    # sealed collection genesis
 MINT3=78a9a662f825d576abdf14e4d47fe6244a68ecd0a54135fca76eca32001cc3fb
 SALE_TX=6bdeb823ff6556dce7ef8c254c8ceaa257913cc820c43da271c52dabdc98ba5b
 fail() { echo "VERIFY.SH FAIL: $*" >&2; exit 1; }
 want() { grep -qF -- "$2" <<<"$1" || fail "expected output missing: $2"; }
 key() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["fvk"])' "$E2/viewing_keys.json" "$1"; }
+key3() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["fvk"])' "$E3/viewing_keys.json" "$1"; }
 # run <expected exit code> <cmd...>: runs, prints, and checks the exit code. Output in $out.
 run() {
   local want_code=$1; shift
@@ -54,7 +58,8 @@ V=./target/release/verify
 FUNDING=$(key acct0)   # funding; the real successor of forged item #2 is its change note
 OLD=$(key acct3)       # vault that bought item #1 on 2026-09-29 and sold it on 2026-09-30
 PAY=$(key acct5)       # seller pay key of the 2026-09-30 sale
-BUYER=$(key acct6)     # vault that bought item #1 on 2026-09-30
+BUYER=$(key acct6)     # vault that bought item #1 on 2026-09-30 and sold it on 2026-10-02
+BUYER2=$(key3 buyer_acct6)   # separate buyer seed's vault, holds item #1 since 2026-10-02
 if [ -f state/seed.hex ]; then
   keys=$(STATE=state OFF=10 ./target/release/carrier keys)
   for a in acct0 acct3 acct5 acct6; do
@@ -84,25 +89,41 @@ run 3 env HOLDER_FVK="$FUNDING" $V "$E/collection.json" 4416690 "$E/package_item
 want "$out" "R2 hop 0: successor invalid (value 9920000 != 0)"
 want "$out" "VERIFY BURNED: item #2 burned at hop 0"
 
-echo "== 2026-09-30 sale package (item #1, hop 1), holder acct6"
-# HELD while acct6 keeps item #1. If a later test moves it, this becomes SPENT (exit 4).
-run 0 env HOLDER_FVK="$BUYER" $V "$E/collection.json" 4416690 "$E2/package_item1_sale.json"
+echo "== 2026-09-30 sale package (item #1, hop 1), its holder acct6"
+# acct6 sold item #1 again on 2026-10-02, so this chain is valid but the carrier is spent.
+run 4 env HOLDER_FVK="$BUYER" $V "$E/collection.json" 4416690 "$E2/package_item1_sale.json"
 want "$out" "R2 hop 0: successor valid (HOP, value 0)"
 want "$out" "R2 hop 1: spent in ${SALE_TX:0:12}"
 want "$out" "R2 hop 1: successor valid (HOP, value 0)"
+want "$out" "R3 holder opens current carrier: yes, unspent=false"
+want "$out" "VERIFY SPENT: item #1"
+
+echo "== 2026-10-02 sale between separate seeds (item #1, hop 2), holder: buyer seed acct6"
+# HELD while the buyer seed keeps item #1. If a later sale moves it, this becomes SPENT (exit 4).
+run 0 env HOLDER_FVK="$BUYER2" $V "$E/collection.json" 4416690 "$E3/package_item1_hop3.json"
+want "$out" "R2 hop 2: spent in ${SALE2_TX:0:12}"
+want "$out" "R2 hop 2: successor valid (HOP, value 0)"
 want "$out" "R3 holder opens current carrier: yes, unspent=true"
 want "$out" "VERIFY HELD: item #1"
+run 2 env HOLDER_FVK="$BUYER" $V "$E/collection.json" 4416690 "$E3/package_item1_hop3.json"
+want "$out" "VERIFY FAIL: holder cannot open current carrier"
 
-echo "== same package without a holder key"
-run 5 env -u HOLDER_FVK $V "$E/collection.json" 4416690 "$E2/package_item1_sale.json"
+echo "== FINAL hard seal (new collection, 2026-10-02)"
+run 0 env -u HOLDER_FVK $V "$E3/collection_sealed.json" "$SEAL_GENESIS_H"
+want "$out" "R1 issuance set: 2 item(s), finalized=true, sealed=true"
+
+echo "== a package without a holder key"
+run 5 env -u HOLDER_FVK $V "$E/collection.json" 4416690 "$E3/package_item1_hop3.json"
 want "$out" "VERIFY UNVERIFIED: item #1"
 
-echo "== 2026-09-30 sale payment (one tx carries the item and the payment)"
+echo "== sale payments (one tx carries the item and the payment), from the published bytes"
 # Offline: parse the published bytes, check their txid and the payment from them; then require the
 # server's copy to be byte-identical and mined.
 run 0 $V payment-file "$E2/sale_tx.hex" "$SALE_TX" "$PAY" 10000
 want "$out" "PAYMENT 10000 zats to the given key in $E2/sale_tx.hex"
 want "$out" "identical to the server copy"
+run 0 $V payment-file "$E3/sale_tx.hex" "$SALE2_TX" "$PAY" 10000
+want "$out" "PAYMENT 10000 zats to the given key in $E3/sale_tx.hex"
 
 echo "== artwork rebuilt from chain bytes"
 art=$(python3 scripts/render_from_chain.py 1 2)

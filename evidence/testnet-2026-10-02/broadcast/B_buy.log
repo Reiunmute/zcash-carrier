@@ -1,0 +1,16 @@
+R2 hop 0: spent in 45056894d3e1..@4416737, successor cmx b36afb0725fe.. (same action)
+R2 hop 0: successor valid (HOP, value 0)
+R2 hop 1: spent in 6bdeb823ff65..@4425592, successor cmx 5cb2cdaab67c.. (same action)
+== current carrier cmx 5cb2cdaab67c..
+R2 hop 1: successor valid (HOP, value 0)
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+  verified from chain: item #1 hop 2, carrier 5cb2cdaab67c.. held by the listed vault key, unspent
+  attempt 1: binding not satisfied, rebuilding
+  attempt 2: binding not satisfied, rebuilding
+  attempt 3: bound ok, carrier action 1, funding action 0
+  pczt expiry_height 4435146
+  proving key 1.0s, proof 0.7s
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/sale.pczt (14932 bytes), carrier action 1, pays 10000 zats

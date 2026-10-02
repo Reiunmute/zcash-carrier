@@ -1,0 +1,5 @@
+== collection 5fc17ef389fdae9b
+R1 issuance set: 2 item(s), finalized=true, sealed=true
+   #1 cmx c361e2d029c3.. art 386B in 7eab6bd6bee4..
+   #2 cmx ee837d517a2e.. art 386B in 512832b969c8..
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)

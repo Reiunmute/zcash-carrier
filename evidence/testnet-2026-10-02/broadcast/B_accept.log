@@ -1,0 +1,3 @@
+  checks ok: carrier unspent, listing open, expiry 4435146 (tip 4435125), branch 37a5165b, 3 actions, carrier spend in action 1, payment 10000 zats
+  extracted tx 281788d78f3e8ab39b208373c9810d0e0383c2cf54beb1b342dfe5bb03c4bf98: 3 actions, 12322 bytes, successor cmx 6adf7001ec7d..
+SALE-ACCEPT 281788d78f3e8ab39b208373c9810d0e0383c2cf54beb1b342dfe5bb03c4bf98

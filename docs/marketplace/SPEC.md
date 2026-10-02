@@ -1,7 +1,7 @@
-# Marketplace SPEC (draft 3, Stage 1: public, browser-only)
+# Marketplace SPEC (draft 4, Stage 1: public, browser-only)
 
-Status: **approved by Ryot on 2026-10-02**, with the draft 3 defaults for decisions D2 to D8 (section 10). Changes to this SPEC need his approval again. D6: ask for design direction before any UI work.
-Draft 3 (2026-10-02) replaces draft 2 (2026-10-01) after the Codex review (`docs/research/codex-review-2026-10-02.md`). Changes are listed in section 14. Draft 0, a local companion on one Mac, was dropped because it could not serve the public.
+Status: **draft 4, approved by Ryot on 2026-10-02**: draft 3 (approved earlier that day with the defaults for D2 to D8) plus proposals X1 to X8 (approved in session, merged below). Changes to this SPEC need his approval again. D6: ask for design direction before any UI work.
+Draft 4 (2026-10-02) merges X1 to X8 from the Codex re-review (`docs/research/codex-review-2026-10-02-rereview.md`) and the P5 measurement into draft 3. Changes are listed in section 14. Draft 0, a local companion on one Mac, was dropped because it could not serve the public.
 Evidence for measured claims: `research/stage1-checks/RESULTS.md` (browser), `evidence/testnet-2026-09-30/` (atomic sale), `evidence/testnet-2026-10-02/` (hardened sale, DRY), `docs/research/zecbit-whitepaper.md` (lessons from the competing design).
 
 ## 1. Goal
@@ -32,12 +32,11 @@ Product principles (see `docs/VISION.md`):
 3. Call `zcash_signMessage(M, {signingMode: "derived"})`. Measured as deterministic (3/3 identical).
 4. Compute `seed = HKDF-SHA256(ikm = signature, salt = "carrier/v1", info = M)`.
 5. ZIP-32 Orchard account 0 of `seed` is the **collectibles account**. It funds purchases and receives the account index records (4.3).
-6. Each item gets its own **vault**: ZIP-32 Orchard account `vault_index` of the same `seed`, where
-   `vault_index = 1 + (LE32(BLAKE2b-256(personal = "CarrierVaultIdx1", coll || LE32(num))[0..4]) mod (2^31 - 1))`.
-   If that index is already used by another item of this seed, take the next free index. The index actually used is stored in the account index record, so recovery never recomputes it (4.3). Only vault FVKs are ever disclosed.
+6. Each acquisition gets a **fresh vault**: the next never-used ZIP-32 Orchard account index of the same `seed`, starting at 1. The browser recovers the highest index used so far from its account index records (4.3) and allocates the next one; a vault index is never reused, even when the same item is bought again, because the previous vault's FVK was disclosed when that item was sold (X2). Concurrent purchases in one browser take indices under a local lock. Only vault FVKs are ever disclosed.
 
-`M` is fixed and versioned, for example:
+`M` is a fixed byte string, frozen per production domain (X5), because changing a single byte derives a different seed. Template (UTF-8, no trailing newline):
 `Carrier collectibles key v1. Only approve on https://<domain>. Approving elsewhere lets that site move your carrier items. It cannot move your ZEC.`
+The domain must be final before the public beta (D9). The testnet beta uses its own domain and therefore its own seeds.
 
 Security properties:
 - Measured: Noir signs without binding the origin. Any site that gets the same `M` approved gets the same seed. Blast radius: carrier items and the collectibles account's balance. The main wallet is out of reach.
@@ -53,14 +52,13 @@ Security properties:
 
 Mined on testnet with the CLI on 2026-09-30 (tx `6bdeb823ff65…`), with buyer and seller keys from one local seed. Hardened and DRY-tested on 2026-10-02: the buyer verifies before paying, full redaction, and nine negative checks including a seller who edits the tx after the buyer signed (`evidence/testnet-2026-10-02/README.md`).
 
-Outputs of the sale tx, all created by the buyer:
-1. the carrier successor to the buyer's new vault, in the **same Action** as the seller's carrier spend
-2. the payment of `price` to the listing's pay address
-3. the buyer's change; the buyer pays the network fee
-4. the buyer's **vault record** (4.2), to the buyer's new vault
-5. the buyer's **account index record** (4.3), to the buyer's collectibles account
+Spends and outputs of the sale tx (X1):
+- spends: the seller's carrier, and exactly one buyer note (the deposit, at least `price + fee`)
+- output 1: the carrier successor to the buyer's new vault, in the **same Action** as the carrier spend. Its HOP memo carries the **vault record** (4.2).
+- output 2: the payment of `price` to the listing's pay address
+- output 3: the buyer's change to its collectibles account. Its memo carries the **account index record** (4.3). Every sale has a change output, zero-value if the deposit was exact.
 
-Plus dummy Actions up to the padding target (5). The output count is the same for every sale.
+That is 2 spends and 3 outputs, so exactly **3 Actions** for every sale, the same shape as the 2026-09-30 sale. 3-Action transactions are the second most common user shape on testnet (2.6%, P5).
 
 ### 3.1 Public listing
 
@@ -75,14 +73,16 @@ The order book publishes only:
 
 ### 3.2 Buy flow
 
-Messages between buyer and seller use HPKE (X25519, HKDF-SHA256, ChaCha20-Poly1305). Every message's associated data is the transcript
-`T = H(listing_id, coll, num, price, expiry_height, seller_channel_key, buyer_channel_key, nonce)`.
+Messages between buyer and seller use HPKE (RFC 9180 base mode: DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305) with `info = "CarrierDisclosureV1"` (X3). Encodings, with `LP(x)` a 4-byte little-endian length followed by `x`:
+- transcript `T = BLAKE2b-256(personal "CarrierDiscloseT", LP(listing_id) || LP(coll) || LE32(num) || LE64(price) || LE64(expiry_height) || LP(seller_channel_key) || LP(buyer_channel_key) || LP(nonce))`
+- AAD of every message: `version (1 byte, 1) || type (1 byte: 1 intent, 2 disclosure, 3 PCZT) || direction (1 byte: 0 buyer to seller, 1 seller to buyer) || LE32(sequence) || T`
+- `nonce`: 32 random bytes chosen by the buyer per intent, single use. Seller, buyer and relay each keep a replay set per listing until the listing expires.
 
-1. **Intent.** The buyer's browser posts an intent for `listing_id` with its own ephemeral X25519 key and a proof-of-work stamp over `T`. The server enforces per-listing caps: at most 3 disclosures in flight, at most 10 per day. The seller's policy can tighten this (D8).
-2. **Disclosure.** The seller's browser (an open tab auto-responds) encrypts `{vault FVK, record pointer, carrier note, pay address}` to the buyer's key. It also signs `T` with a RedPallas spend-authorization signature under the vault key, so the signature verifies against the `ak` inside the disclosed FVK. The server relays ciphertext only.
-3. **Verify.** The buyer's browser checks the signature over `T` against the disclosed FVK and checks that `T` contains its own channel key. A relay that substituted either key is detected here, so the buyer aborts and reports. The relay may have read that one disclosure; it cannot alter it, because the next step checks everything against chain data. The buyer then reconstructs the provenance from the record pointer (4.2) and runs R1 to R3 against chain data (6.2). Only HELD continues. The note used from here on is the one decrypted from chain, not the disclosed copy.
-4. **Build.** The buyer's browser checks that its deposit note is unspent, builds the PCZT, retries unproven builds until the carrier pair shares an Action, proves all Actions (the seller's Action needs only the disclosed note, its Merkle path and the vault FVK), signs the buyer spends, and redacts (3.3). It refuses to post if any redacted field is still present.
-5. **Post.** The PCZT is encrypted to `seller_channel_key` with AAD `T` and posted.
+1. **Intent and reservation.** The buyer's browser posts an intent for `listing_id` with its own ephemeral X25519 key, its nonce and a proof-of-work stamp over `T`. The seller's tab grants **one lease** (30 minutes, renewable, idempotent) before disclosing anything; other intents wait in a queue and are told the listing is reserved (X6). The server enforces per-listing caps. Optionally (X4, off by default, the seller's choice) the buyer attaches a proof of funds: the plaintext and location of its confirmed deposit note, which reveals that note to the seller.
+2. **Disclosure.** The seller's browser encrypts `{vault FVK, carrier location, pay address}` to the lease holder's key. It signs `"CarrierDisclosureV1" || T || BLAKE2b-256(payload)` with `vault_sign` (a RedPallas signature under the vault key, verifiable against the `ak` in the disclosed FVK). The server relays ciphertext only.
+3. **Verify.** The buyer's browser checks the signature against the disclosed FVK and checks that `T` contains its own channel key and nonce. A relay that substituted a key is detected here; the buyer aborts and reports. The buyer then walks the record chain (4.2) and runs R1 to R3 against chain data (6.2). Only HELD continues. The note used from here on is the one decrypted from chain.
+4. **Build.** The buyer's browser checks that its deposit note is unspent, builds the PCZT (3 Actions), retries unproven builds until the carrier pair shares an Action, proves all Actions (the seller's Action needs only the disclosed note, its Merkle path and the vault FVK), signs the buyer spend, and redacts (3.3). It refuses to post if any redacted field is still present.
+5. **Post.** The PCZT is encrypted to `seller_channel_key` (type 3) and posted.
 6. **Accept.** The seller's browser runs the accept checks below, signs the carrier spend, extracts (this verifies the proof and every signature) and broadcasts.
 
 Accept checks (as implemented in `carrier sale-accept` on 2026-10-02):
@@ -91,7 +91,7 @@ Accept checks (as implemented in `carrier sale-accept` on 2026-10-02):
 - PCZT `expiry_height` is at least tip + 3, at most the listing expiry, and at most tip + 40
 - the consensus branch id is the current one
 - the PCZT carries the listing id of this exact listing version in its global proprietary field (added after the Codex re-review)
-- the PCZT has only an Ironwood bundle, with exactly the sale shape's Action count (3 in the CLI, which has no record outputs yet)
+- the PCZT has only an Ironwood bundle, with exactly 3 Actions (the sale shape, X1)
 - the carrier nullifier is spent in exactly one Action
 - outputs to the listing's pay address, decrypted from the effects, sum exactly to the price (checked addition)
 
@@ -103,7 +103,7 @@ The seller must be online for steps 2 and 6. An open tab handles both automatica
 
 As implemented in `carrier sale-buy` on 2026-10-02, the buyer clears:
 - on its funding spends: FVK, witness, ZIP-32 derivation, recipient, value, rho, rseed, alpha (with alpha and the public `rk`, anyone could recover the buyer's `ak` and link its PCZTs), proprietary fields
-- on every output it created (successor, payment, change; and the record outputs once P4 adds them): recipient, value, rseed, `ock`, ZIP-32 derivation, user address, proprietary fields
+- on every output it created (successor with its vault record, payment, change with its account index record): recipient, value, rseed, `ock`, ZIP-32 derivation, user address, proprietary fields
 - on every Action: value randomness (`rcv`) and dummy spend keys
 
 The successor and the records use the buyer's own OVK, so the seller cannot recover them from chain. Extraction still succeeds after this redaction (tested 2026-10-02 on the three-output CLI sale). A self-check searches the serialized PCZT for the buyer's FVK, funding-note rho and rseed, and the buyer's addresses, and refuses to post if any is found.
@@ -111,7 +111,7 @@ The successor and the records use the buyer's own OVK, so the seller cannot reco
 ### 3.4 Race, reservation, expiry and the free option
 
 - Two sales of one carrier spend the same nullifier, so at most one can be mined. A double sale is impossible by construction.
-- **One active reservation per listing.** The seller's tab accepts the first valid PCZT and does not disclose to further buyers until it is mined or has expired. Later intents are told the listing is reserved. This avoids buyers depositing and proving for a sale that cannot happen.
+- **One lease per listing, granted at intent (X6).** Only the lease holder receives the disclosure and may post a PCZT. Others wait. Nobody deposits or proves for a sale that cannot happen.
 - PCZTs carry `expiry_height`. Default: tip + 20 (about 25 minutes); the seller refuses more than tip + 40. The order book drops expired PCZTs.
 - **The free option is real.** Until expiry, the seller alone decides whether to broadcast. The buyer can try to cancel by spending its deposit note to itself, but a cancellation takes effect only once it is mined, and the seller can still broadcast first and win the nullifier race. The UI says this plainly. It is inherent to a protocol where one party signs last. Short expiries bound it.
 - Griefing (abandoned intents, spam PCZTs) is bounded by proof of work, per-listing caps, reservation and expiry. The buyer's principal is never at risk: either the sale completes atomically or the deposit stays the buyer's. Fees, deposit lockup time and price risk remain.
@@ -126,30 +126,39 @@ If the marketplace charges a fee, it is an extra output in the same sale tx to t
 
 Per hop: the vault FVK. The verifier decrypts each note from chain with that FVK. Plus the public collection record and the item number.
 
-### 4.2 Vault records: constant size per sale
+### 4.2 Vault records: in the successor's memo
 
-Each sale adds one **vault record**, an output to the buyer's new vault whose memo holds:
-- format tag and version; `coll`, `num`, the new hop number
-- the seller's vault FVK (96 bytes)
-- a pointer to the seller's own vault record: `(txid, action index)`, or the issuance marker `(genesis txid, item)` when the seller's carrier came from issuance
-- the successor commitment `cmx`, which the verifier checks against the carrier Action of the same tx
+The successor carrier's HOP memo carries the vault record as its payload (X1, X5). Version 1, 135 bytes:
 
-Because the record sits at the buyer's vault address, the next buyer can decrypt it with the FVK it is given. Walking the pointers back, each record yields the FVK that decrypts the previous one, so one disclosed vault FVK plus one pointer reconstructs the whole history. The record has a fixed size, so the sale tx has the same number of outputs at every hop.
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 1 | record version `0x01` |
+| 1 | 96 | the seller's vault FVK (`ak || nk || rivk`) |
+| 97 | 1 | pointer kind: `0x00` issuance, `0x01` carrier created by a sale or transfer |
+| 98 | 32 | pointer txid (protocol byte order): the tx that created the seller's carrier |
+| 130 | 4 | pointer action index, little endian |
+| 134 | 1 | flags, must be 0 |
+
+The memo's own commitment needs no field: a note commitment does not cover the memo, and the record travels inside the very note it describes.
+
+Walking the chain: the holder decrypts its carrier, reads the record, decrypts the note at the pointer with the FVK in the record, reads that note's record, and so on until a pointer of kind issuance (checked against R1). Each step must be the spend-and-successor pair of R2. Hops made before records existed (the 2026-09-29 transfer, the 2026-09-30 and 2026-10-02 sales) end the walk early; their history comes from the provenance package as before.
+
+Validation: version 1 only; exactly 135 bytes; flags 0; no pointer cycles (visited set); at most 10,000 hops and 2 MB of decrypted data per walk.
 
 ### 4.3 Account index records: seed-only recovery
 
-Each purchase also adds an **account index record**, an output to the buyer's collectibles account (account 0) whose memo holds `{coll, num, vault_index}`.
+The buyer's change output memo has kind `ACCOUNT` (5), the collection id and item number in the memo header, the new hop number in the hop field, and a 5-byte payload: version `0x01` and `LE32(vault_index)` (X1, X5).
+
+An account index record is accepted only if the same tx moves a valid carrier (R2) to the vault at `vault_index` of the same seed. Duplicates are ignored; two records naming the same vault index for different items are a conflict and both are reported.
 
 Recovery from the wallet signature alone:
-1. Re-derive `seed`, then account 0, and scan the chain with its one incoming viewing key.
-2. Each account index record names an owned item and the vault index actually used. There is no guessing over `2^31` indices.
-3. Derive each vault key, find its carrier and vault record, and walk the record chain (4.2).
-
-Losing browser storage loses nothing, provided the chain and a lightwalletd are reachable.
+1. Re-derive `seed`, then account 0, and scan with its one incoming viewing key from a birthday height: one the user noted at connect time, or else the Ironwood activation height (4,134,000 on testnet). Nothing about the user is stored on the server for this. Re-scan the last 100 blocks on reorg.
+2. Each accepted account index record names an owned item and its vault index. The highest index seen is where allocation continues (2.1 step 6).
+3. Derive each vault key, check the carrier is unspent (R3), and walk its vault records (4.2).
 
 ## 5. Transaction shape
 
-- **Padding.** Every sale tx is padded with dummy Actions to one fixed count. Because 3 and 4 fix the output count at 5, the count does not depend on history length. The target is chosen from the measured Ironwood Action-count distribution (P5).
+- **Shape.** Every sale tx has exactly 3 Actions (3), so no padding is needed and the shape matches the 2026-09-30 sale. Mainnet may differ (P5 measured testnet only).
 - **Anchor age.** The anchor is a random recent height, not always the tip, so the anchor does not reveal when the tx was built. The allowed range is to be confirmed against consensus rules (P5).
 - **Timing.** The site publishes no sale times. Listings are removed without a public "sold" event.
 
@@ -175,10 +184,10 @@ Every verdict rests on chain data served by lightwalletd. The verifier (since 20
 
 None of this validates proof of work. A colluding pair of servers could still serve a false view. Stage 1 therefore:
 - uses two independent servers, ours and one third-party operator; a "verified" badge requires both to agree, and the UI shows the trust basis
-- fetches block ranges, not single transactions, so lookups do not name the item being verified
+- fetches block ranges, not single transactions, where compact data is enough. Memos need full transactions, which compact blocks do not carry, so full transactions are fetched through our relay in batches mixed with decoy txids (X7). Until that is built, a direct `GetTransaction` tells the server which item is being verified, and the UI says so.
 - broadcasts through our relay so the node operator does not see user IPs; optional Tor guidance for users who want to hide their IP from us
 
-Later: light-client header validation in the browser (proof-of-work and chain-work checks on headers), which removes server trust except for availability.
+Before any real value (D7): light-client header validation in the browser (proof-of-work and chain-work checks on headers), which removes server trust except for availability (X8).
 
 ### 6.3 Content
 
@@ -212,15 +221,15 @@ Later: light-client header validation in the browser (proof-of-work and chain-wo
 | P1 | Successor validity rule (OPEN_ISSUES #7), with the hop counter | done 2026-09-30, hop counter 2026-10-02 |
 | P2 | CLI two-party PCZT sale on testnet | done 2026-09-30, tx `6bdeb823ff65…` (one local seed) |
 | P3 | Redaction with extraction still succeeding; seller edit after buyer signature rejected; buyer verifies before paying | done 2026-10-02, DRY (`evidence/testnet-2026-10-02/`) |
-| P4 | Vault records and account index records (4.2, 4.3); verifier walking record pointers; seed-only recovery test | to do |
+| P4 | Vault records in successor memos and account index records in change memos (4.2, 4.3, version 1 formats); verifier walking record pointers; seed-only recovery test | to do |
 | P5 | Measure the Ironwood Action-count distribution; padding and anchor-age rules | to do |
 | P6 | Browser network: grpc-web streaming and Ironwood compact data (HANDOFF task 3) | done 2026-10-02: ChainSafe streams `GetBlockRange` over grpc-web to a cross-origin browser (CORS ok), with Ironwood actions (`pool_types` empty or containing 4); 10,000 blocks in about 0.7 s in Chromium (`research/stage1-checks/RESULTS.md`). The relay now streams too, but needs range caps and rate limits before public use |
 | P7 | `carrier-core` crate for native and wasm32 (HANDOFF task 5) | done 2026-10-02 for formats, keys, decryption and rules R1 to R3 (bundle-based, no `zcash_primitives`); `verify.sh` builds it for wasm32 and checks that `carrier-wasm` called from JavaScript matches native results. The PCZT sale path stays native until a wasm-capable C compiler is available for `secp256k1-sys` (pulled in by `zcash_primitives`) |
-| P8 | Key derivation of 2.1 (collectibles account, vault index, collision rule) replacing the PoC `OFF` offsets | partly: `collectibles_seed` (HKDF, step 4) in `carrier-core::keys`; vault index allocation waits for proposal X2 |
-| P9 | FINAL hard seal (OPEN_ISSUES #2) | to do, needs a new test collection and broadcast approval |
-| P10 | Authenticated disclosure channel (3.2): HPKE messages bound to `T`, vault signature over `T` | partly: `vault_sign` / `vault_verify` (RedPallas, domain-separated) in `carrier-core::keys`; the encoding of `T` and HPKE wait for proposal X3 |
+| P8 | Key derivation of 2.1 (collectibles account, fresh vault index per acquisition) replacing the PoC `OFF` offsets | partly: `collectibles_seed` (HKDF, step 4) in `carrier-core::keys`; vault index allocation to do |
+| P9 | FINAL hard seal (OPEN_ISSUES #2) | done 2026-10-02: collection `5fc17ef389fdae9b`, FINAL in tx `512832b969c8…` at the seal address, R1 `sealed=true` |
+| P10 | Authenticated disclosure channel (3.2): transcript `T`, HPKE, vault signature, replay sets, leases | partly: `vault_sign` / `vault_verify` (RedPallas, domain-separated) in `carrier-core::keys`; the rest to do |
 | P11 | A second, independent lightwalletd (our own node) for 6.2 | to do |
-| P12 | Repeat the CLI sale with separately held seeds (`STATE` per party, `SALE_DIR` between them) | code ready 2026-10-02; run needs broadcast approval |
+| P12 | Repeat the CLI sale with separately held seeds (`STATE` per party, `SALE_DIR` between them) | done 2026-10-02: tx `281788d78f3e…` (`evidence/testnet-2026-10-02/`) |
 
 ## 10. Decisions for Ryot
 
@@ -233,7 +242,8 @@ Later: light-client header validation in the browser (proof-of-work and chain-wo
 | D5 | Content moderation policy | required before the public beta |
 | D6 | Visual design direction | ask before any UI work |
 | D7 | Mainnet, and legal review before any real value | out of scope for Stage 1 |
-| D8 | Disclosure gating: proof of work and per-listing caps (3.2), or something stronger such as an off-chain proof of funds | proof of work + caps |
+| D8 | Disclosure gating: proof of work and per-listing caps (3.2), or something stronger such as an off-chain proof of funds | proof of work + caps; proof of funds optional, seller's choice (X4) |
+| D9 | Production domain, which freezes `M` (2.1) | to decide before the public beta |
 
 ## 11. Acceptance (MVP, testnet)
 
@@ -242,7 +252,7 @@ Later: light-client header validation in the browser (proof-of-work and chain-wo
 3. B posts an intent, receives the disclosure, verifies A's signature over `T`, and sees R1 to R3 pass with both lightwalletd servers agreeing.
 4. A relay test that swaps B's channel key is detected by B (automated check).
 5. B deposits and clicks Buy; the PCZT is posted encrypted. The PCZT contains no buyer FVK, funding-note fields, buyer addresses or output plaintext (automated check).
-6. A's tab accepts. **One** testnet tx contains both legs, the vault record, the account index record, and exactly the padding-target number of Actions.
+6. A's tab accepts. **One** testnet tx contains both legs, the vault record in the successor memo, the account index record in the change memo, and exactly 3 Actions.
 7. After mining: B shows #1 in Collected. The CLI verifier agrees on the new owner.
 8. Restore: B clears all browser storage, reconnects, and recovers #1 with its full provenance from chain alone (4.3).
 9. Negative checks: B alone cannot broadcast; a tampered amount is refused by A; an expired PCZT is refused; a PCZT valid past the cap is refused; a tx A edits after B signed fails extraction; a stale listing is refused by both sides.
@@ -259,6 +269,17 @@ Mainnet, WalletConnect, connect with wallets other than Noir (any wallet can sti
 - **Ask Noir:** origin-bound `signMessage` and a derived-key API, which would close the risk in 2.1.
 
 ## 14. Changes
+
+### Draft 4 (2026-10-02), approved
+
+- X1: 3-Action sale; the vault record rides in the successor's memo and the account index record in the change memo (3, 4.2, 4.3, 5).
+- X2: a fresh, never-reused vault index per acquisition, recovered from account index records (2.1).
+- X3: exact transcript, AAD and nonce rules for the disclosure channel; the vault signature covers the payload hash (3.2).
+- X4: optional proof of funds, the seller's choice (3.2, D8).
+- X5: version 1 byte formats, validation and caps for both records; `M` frozen per domain (2.1, 4.2, 4.3, D9).
+- X6: one lease per listing, granted at intent, before any disclosure (3.2, 3.4).
+- X7: full transactions fetched through the relay in decoy batches; the remaining leak is stated (6.2).
+- X8: light-client header validation before any real value (6.2).
 
 ### Draft 3 (2026-10-02), after the Codex review
 
@@ -277,17 +298,6 @@ Mainnet, WalletConnect, connect with wallets other than Noir (any wallet can sti
 - Public listings without FVKs, with disclosure only to a committed buyer; buyer-side redaction; FVK-only provenance in self-addressed memos; Action padding, anchor-age randomisation, no public sale times; browser code security, own lightwalletd, content moderation; per-listing pay address; prerequisites, decisions and acceptance tables.
 - Prior art: the note-chaining primitive was published first by ZecBit's NSCV (2026-09-20). Carrier's distinct contributions are the non-custodial atomic sale and a working implementation.
 
-## 15. Proposed changes for draft 4 (NOT approved)
+## 15. Proposals X1 to X8
 
-From the P5 measurement (`research/p5-action-counts-2026-10-02.md`) and the Codex re-review (`docs/research/codex-review-2026-10-02-rereview.md`). Draft 3 stays the approved baseline until Ryot approves these.
-
-| ID | Proposal | Why |
-|---|---|---|
-| X1 | 3-Action sale: put the vault record (4.2) in the successor carrier's memo and the account index record (4.3) in the change output's memo; keep a change output in every sale | 5 outputs means at least 5 Actions, which only 0.2% of testnet txs have; 3 Actions matches 2.6% and the CLI shape (P5) |
-| X2 | Fresh vault per acquisition: allocate the next never-used vault index (a counter recovered from account index records), not `hash(coll, num)` | the hash rule reuses a vault whose FVK was disclosed when the item was sold, so a re-bought item would be visible to the previous buyer |
-| X3 | Disclosure encoding: canonical length-prefixed `T` with domain `CarrierDisclosureV1`; sign `domain || T || H(payload)`; AAD carries version, message type, direction and a sequence number; single-use nonces with replay state | draft 3 leaves encodings, payload binding and replay open |
-| X4 | Disclosure gating: offer an optional proof of funds (the buyer shows its confirmed deposit note to the seller with a payment-disclosure proof) in addition to proof of work and caps | proof of work and per-listing caps still let a scraper take one disclosure from every listing |
-| X5 | Records: exact byte formats, zero value, versioned; accept an account index record only if the same tx moves a valid carrier to the named vault; reject duplicates and conflicts; cycle detection, hop and byte caps; recovery scans from a recorded birthday height and re-scans the last 100 blocks on reorg; freeze the exact bytes of `M` | prevents fake or cyclic records and makes seed recovery stable |
-| X6 | Reservation at intent: the seller grants one short lease (for example 30 minutes) before disclosing, renewable and idempotent; others wait | draft 3 reserved only after a valid PCZT, after other buyers had already deposited and proved |
-| X7 | Transaction lookups: memos need full transactions, which compact blocks do not carry. Fetch full transactions in privacy-sized batches through our relay, with decoys, and state the remaining leak until then | direct `GetTransaction` calls tell the server which item is being verified |
-| X8 | Trust: keep the content comparison of 6.2 across two independent servers, and add light-client header validation before any real value | the content check needs a second independent server, and neither check validates proof of work |
+Approved by Ryot on 2026-10-02 and merged into draft 4 (section 14). The original proposal table is in git history (commit `987d881`).
