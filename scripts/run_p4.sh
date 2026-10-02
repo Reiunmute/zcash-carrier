@@ -8,7 +8,9 @@
 #      (acct7, index 17), 10,000 zats to a per-listing address of OFF=30 acct5 (index 35).
 #      The buyer seed pays: funding note 275,000 zats in 281788d7..., fee 15,000.
 #   The successor's memo carries the vault record (SPEC 4.2, pointer kind issuance) and the
-#   buyer's change memo the account index record (SPEC 4.3, vault index 17).
+#   buyer's change memo the account index record (SPEC 4.3, vault index 17). Buyer and seller
+#   talk through the disclosure channel (SPEC 3.2): public listing, intent, lease and signed
+#   disclosure, encrypted PCZT.
 #
 # Then checks, from chain data only:
 #   the record walk rebuilds item #1's provenance to issuance and the buyer's vault holds it (HELD),
@@ -57,9 +59,11 @@ echo "D  sale of sealed-collection item #1: OFF=30 acct2 ${S2:0:16}.. -> buyer s
 echo "   funding $FUND (buyer seed acct0)"
 [ -n "${PLAN:-}" ] && exit 0
 
-step "D  sale with records (list and buy do not broadcast; accept does)"
+step "D  sale with records over the disclosure channel (only accept broadcasts)"
 seller PACKAGE=package_item1.json $C sale-list | tee "$LOG/D_list.log"
-buyer FUND_TX=$FUND BUYER_VAULT_ACCT=7 $C sale-buy | tee "$LOG/D_buy.log"
+buyer $C sale-intent | tee "$LOG/D_intent.log"
+seller $C sale-disclose | tee "$LOG/D_disclose.log"
+buyer FUND_TX=$FUND BUYER_VAULT_ACCT=7 COLLECTION=state/c2/collection.json $C sale-buy | tee "$LOG/D_buy.log"
 seller $C sale-accept | tee "$LOG/D_accept.log"
 TXD=$(awk '$1=="SALE-ACCEPT"{print $2; exit}' "$LOG/D_accept.log")
 wait_mined "$TXD"

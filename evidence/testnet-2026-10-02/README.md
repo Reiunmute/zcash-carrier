@@ -87,3 +87,21 @@ Marketplace SPEC draft 4, sections 4.2 and 4.3. A DRY sale of item #1 of the sea
 ## P8 DRY: automatic vault index (`p8_auto_vault_dry.log`)
 
 `sale-buy` with `BUYER_VAULT_ACCT=auto` on the buyer seed (`BIRTHDAY=4435100`): the first purchase takes vault index 1 (no account index records yet, and index 1 never received a note) and reserves it; a second purchase takes index 2, and its change memo records 2. Separately, with the reservation set to 16, allocation skips 16 (it holds item #1 since tx `281788d7…`) and returns 17. Nothing was broadcast. The local reservation file was deleted after the test, because these DRY PCZTs are discarded.
+
+## P10 DRY: the sale over the disclosure channel (`p10_channel_dry.log`)
+
+The CLI sale now follows SPEC 3.1 and 3.2. `listing.json` holds only `{listing_id, coll, num, price, expiry_height, seller_channel_key}`; the vault key, carrier location, pay address and package travel in a vault-signed disclosure encrypted to the lease holder, and the PCZT travels encrypted to the seller's channel key. Seller `STATE=state OFF=30` acct2, buyer the separate seed's acct7; nothing was broadcast.
+
+| Case | Result |
+|---|---|
+| A. List, intent, disclose, buy, accept (DRY) | extraction succeeds |
+| B. A second buyer's intent while the lease is held | `RESERVED` until the lease ends |
+| C. Buyer 1's intent replayed | refused: nonce already used |
+| D. One byte of the encrypted PCZT altered | refused: does not open |
+| E. Accept at the lease end (`NOW=until`) | refused: lease expired |
+| F. Seller edits the tx after signing | extraction refused (`SighashMismatch`) |
+| G. Relay lowers the price; with the id left as is, then with the id recomputed (independently, Python `hashlib`) | buyer refuses the first; seller refuses the second's intent |
+| H. Relay replaces the buyer's intent with its own key | seller discloses to the relay's transcript; the buyer cannot open it |
+| I. Disclosure without a package (`RECORDS_ONLY=1`) | buyer verifies from chain alone and the sale extracts (DRY) |
+
+Case I is an issuance carrier, so no vault record was needed; walking records past issuance is covered by `verify ... walk:` (`p4_dry_records.log`). A relay that decrypts and re-encrypts a disclosure under the buyer's transcript fails the vault signature check; that case is a unit test (`carrier-core::channel`).

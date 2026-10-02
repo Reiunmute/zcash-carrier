@@ -1,0 +1,121 @@
+### A1 list (public listing written)
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+LISTED item #1 hop 0 price 10000 zats expiry 4436625, listing 45a990167abc.. in <SALE_DIR>/listing.json
+exit 0
+public listing fields: ['coll', 'expiry_height', 'listing_id', 'num', 'price', 'seller_channel_key']
+### A2 intent (buyer)
+INTENT for listing 45a990167abc.., transcript 620d73c01384.., pow stamp 243780
+exit 0
+### A3 disclose (lease to buyer)
+DISCLOSED to transcript 620d73c01384.. (lease until 1790979837), 342 bytes
+exit 0
+### A4 buy (disclosure verified, R1-R3, PCZT encrypted to the seller)
+  disclosure opened, vault signature verified for our transcript 620d73c01384..
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+  verified from chain: item #1 hop 0, carrier c361e2d029c3.. held by the disclosed vault key, unspent
+  proving key 1.0s
+  attempt 1: binding not satisfied, rebuilding
+  attempt 2: binding not satisfied, rebuilding
+  attempt 3: binding not satisfied, rebuilding
+  attempt 4: binding not satisfied, rebuilding
+  attempt 5: binding not satisfied, rebuilding
+  attempt 6: bound ok, carrier action 2, funding action 1
+  pczt expiry_height 4435646
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/sale.pczt (14932 bytes PCZT, 14980 encrypted), carrier action 2, pays 10000 zats
+exit 0
+### A5 accept DRY
+  checks ok: lease holder, carrier unspent, listing open, expiry 4435646 (tip 4435625), branch 37a5165b, 3 actions, carrier spend in action 2, payment 10000 zats
+  extracted tx 0654d779fa8aee79d1bff5e6ff65e7fde4d8b4251e073e7f35196873dc773c7a: 3 actions, 12322 bytes, successor cmx 1d403c69d40b..
+SALE-ACCEPT DRY 0654d779fa8aee79d1bff5e6ff65e7fde4d8b4251e073e7f35196873dc773c7a (not broadcast, bytes in sale_dry_tx.bin)
+exit 0
+### B1 second buyer's intent while the lease is held
+INTENT for listing 45a990167abc.., transcript ecf168c6e67f.., pow stamp 99580
+exit 0
+### B2 disclose for the second buyer
+error: RESERVED: another buyer holds the lease until 1790979837; this intent waits
+exit 1
+### C  replayed intent (buyer 1's nonce again)
+error: REFUSED: intent nonce already used, or the listing expired (tip 4435625)
+exit 1
+### D  PCZT ciphertext altered in transit
+error: REFUSED: the PCZT is not from the lease holder (message does not open (wrong key, transcript, type, direction or sequence))
+exit 1
+### E  accept after the lease lapsed (NOW=until)
+error: REFUSED: the lease expired at 1790979837
+exit 1
+### F  tamper after sign
+  checks ok: lease holder, carrier unspent, listing open, expiry 4435646 (tip 4435625), branch 37a5165b, 3 actions, carrier spend in action 2, payment 10000 zats
+  seller-tamper extract refused: SighashMismatch
+SALE-ACCEPT TAMPER TEST done, nothing broadcast
+exit 0
+### G1 new listing
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+LISTED item #1 hop 0 price 10000 zats expiry 4436625, listing 9212c3e0cb22.. in <SALE_DIR>/listing.json
+exit 0
+### G2 relay lowers the price without fixing the id: buyer refuses
+error: REFUSED: listing id does not match the listing's terms
+exit 1
+### G3 relay lowers the price and recomputes the id: buyer intends
+INTENT for listing eabd2c34d254.., transcript 615b7e173877.., pow stamp 35678
+exit 0
+### G4 seller refuses the intent (another listing)
+error: REFUSED: the intent is for another listing
+exit 1
+### H1 new listing
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+LISTED item #1 hop 0 price 10000 zats expiry 4436625, listing 46a8d9af5753.. in <SALE_DIR>/listing.json
+exit 0
+### H2 buyer intent
+INTENT for listing 46a8d9af5753.., transcript c82902e5998a.., pow stamp 130337
+exit 0
+### H3 relay replaces the intent with its own key
+INTENT for listing 46a8d9af5753.., transcript e00b65f80682.., pow stamp 121964
+exit 0
+### H4 seller discloses (to the relay's transcript)
+DISCLOSED to transcript e00b65f80682.. (lease until 1790979842), 342 bytes
+exit 0
+### H5 buyer cannot use the disclosure
+error: message does not open (wrong key, transcript, type, direction or sequence)
+exit 1
+### I1 new listing
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+LISTED item #1 hop 0 price 10000 zats expiry 4436625, listing f1cb780bff58.. in <SALE_DIR>/listing.json
+exit 0
+### I2 intent
+INTENT for listing f1cb780bff58.., transcript edcf7858e4fb.., pow stamp 9762
+exit 0
+### I3 disclose with RECORDS_ONLY=1 (no package)
+DISCLOSED to transcript edcf7858e4fb.. (lease until 1790979843), 292 bytes, records only
+exit 0
+### I4 buy from records
+  disclosure opened, vault signature verified for our transcript edcf7858e4fb..
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+  verified from chain: item #1 hop 0, carrier c361e2d029c3.. held by the disclosed vault key, unspent
+  proving key 1.0s
+  attempt 1: binding not satisfied, rebuilding
+  attempt 2: binding not satisfied, rebuilding
+  attempt 3: bound ok, carrier action 0, funding action 2
+  pczt expiry_height 4435646
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/sale.pczt (14932 bytes PCZT, 14980 encrypted), carrier action 0, pays 10000 zats
+exit 0
+### I5 accept DRY
+  checks ok: lease holder, carrier unspent, listing open, expiry 4435646 (tip 4435625), branch 37a5165b, 3 actions, carrier spend in action 0, payment 10000 zats
+  extracted tx 415d43b4581141f8ab5bde8919b992e56574a404d33196193394d62de47b903c: 3 actions, 12322 bytes, successor cmx 3ba573e3b891..
+SALE-ACCEPT DRY 415d43b4581141f8ab5bde8919b992e56574a404d33196193394d62de47b903c (not broadcast, bytes in sale_dry_tx.bin)
+exit 0

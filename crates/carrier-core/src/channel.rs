@@ -40,6 +40,14 @@ fn blake2b32(personal: &[u8; 16], data: &[u8]) -> [u8; 32] {
     blake2b_simd::Params::new().hash_length(32).personal(personal).hash(data).as_bytes().try_into().unwrap()
 }
 
+/// Id of a public listing (SPEC 3.1): `BLAKE2b-256(personal "CarrierListing01", coll ||
+/// LE32(num) || LE64(price) || LE64(expiry_height) || seller_channel_key)`. The channel key is
+/// fresh per listing, so ids do not repeat; any change to the terms changes the id.
+pub fn listing_id(coll: &[u8; 32], num: u32, price: u64, expiry_height: u64, seller_key: &[u8; 32]) -> [u8; 32] {
+    let m = [&coll[..], &num.to_le_bytes(), &price.to_le_bytes(), &expiry_height.to_le_bytes(), seller_key].concat();
+    blake2b32(b"CarrierListing01", &m)
+}
+
 /// What `T` binds: the listing terms, both channel keys and the buyer's single-use nonce.
 pub struct Terms {
     pub listing_id: [u8; 32],

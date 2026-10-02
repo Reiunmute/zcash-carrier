@@ -399,6 +399,8 @@ async fn run() -> Result<()> {
         }
         // Two-party atomic sale via PCZT (docs/marketplace/SPEC.md section 3). See sale_* below.
         "sale-list" => sale_list(c).await?,
+        "sale-intent" => sale_intent()?,
+        "sale-disclose" => sale_disclose(c).await?,
         "sale-buy" => sale_buy(c).await?,
         "sale-accept" => sale_accept(c, dry).await?,
         "recover" => recover(c).await?,
@@ -426,7 +428,7 @@ async fn run() -> Result<()> {
                 println!("acct{n} fvk {}", fvk_hex(&acct(n)?.fvk));
             }
         }
-        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | sale-list | sale-buy | sale-accept | send <fvk> <zats> | recover | keys"),
+        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | sale-list | sale-intent | sale-disclose | sale-buy | sale-accept | send <fvk> <zats> | recover | keys"),
     }
     Ok(())
 }
@@ -457,30 +459,56 @@ async fn find_change(c: &mut Client, txid: &str, fvk: &FullViewingKey) -> Result
 //   buyer  = acct0 (funding, note in FUND_TX) + BUYER_VAULT_ACCT (default 6, the buyer's new vault;
 //            `auto` allocates the next never-used ZIP-32 index, SPEC 2.1 step 6)
 // Each subcommand derives only the keys of its own role. Buyer and seller can run with different
-// STATE dirs (separate seeds); they exchange the listing and the PCZT through SALE_DIR.
+// STATE dirs (separate seeds). Through SALE_DIR they exchange only what the order book would
+// relay (SPEC 3.1, 3.2): the public listing, the intent, the encrypted disclosure and the
+// encrypted PCZT. Order: sale-list, sale-intent, sale-disclose, sale-buy, sale-accept.
 
 /// Total ZEC supply in zats; any price above it is invalid input.
 const MAX_MONEY: u64 = 21_000_000 * 100_000_000;
 
-/// Listing record. In the CLI it is a local file; SPEC draft 3 keeps the vault FVK, note and
-/// package out of the public order book and discloses them only to a committed buyer.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct Listing {
-    /// public collection record, needed for R1
-    collection: Collection,
-    item: u32,
-    /// hop number of the carrier being sold; the successor gets hop + 1
-    hop: u32,
+/// Public listing (SPEC 3.1): everything the order book shows. `SALE_DIR/listing.json`.
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct PublicListing {
+    listing_id: String,
+    coll: String,
+    num: u32,
     price: u64,
-    /// raw 43-byte Orchard-protocol address, hex. A fresh diversified address per listing.
-    seller_pay_addr: String,
-    seller_pay_ua: String,
-    /// listing expiry height
-    expiry: u64,
+    expiry_height: u64,
+    seller_channel_key: String,
+}
+
+/// The seller's private side of a listing (`FILES_DIR/listing_private.json`): what it discloses
+/// to the lease holder, its channel key, and the channel state (used nonces, lease).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SellerListing {
+    public: PublicListing,
+    channel_sk: String,
     carrier: Held,
+    carrier_action: usize,
     vault_fvk: String,
+    /// raw 43-byte Orchard-protocol address, hex. A fresh diversified address per listing.
+    pay_addr: String,
     /// provenance up to (not including) the carrier being sold
     package: Package,
+    seen_nonces: Vec<String>,
+    /// (holder transcript, until unix seconds)
+    lease: Option<(String, u64)>,
+}
+
+/// A buyer's intent (SPEC 3.2 step 1), posted in the clear. `SALE_DIR/intent.json`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Intent {
+    listing_id: String,
+    buyer_channel_key: String,
+    nonce: String,
+    pow: u64,
+}
+
+/// The buyer's private side of an intent (`STATE/intent_private.json`).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BuyerIntent {
+    intent: Intent,
+    channel_sk: String,
 }
 
 fn sale_dir() -> PathBuf {
@@ -495,6 +523,10 @@ fn listing_path() -> PathBuf {
     sale_dir().join(std::env::var("LISTING").unwrap_or_else(|_| "listing.json".into()))
 }
 
+fn read_json<T: serde::de::DeserializeOwned>(p: &std::path::Path) -> Result<T> {
+    serde_json::from_slice(&read_capped(p)?).with_context(|| p.display().to_string())
+}
+
 fn env_u64(k: &str, default: u64) -> Result<u64> {
     std::env::var(k).map(|v| v.parse::<u64>().with_context(|| k.to_string())).unwrap_or(Ok(default))
 }
@@ -503,26 +535,70 @@ fn env_u32(k: &str, default: u32) -> Result<u32> {
     std::env::var(k).map(|v| v.parse::<u32>().with_context(|| k.to_string())).unwrap_or(Ok(default))
 }
 
-fn pay_address(l: &Listing) -> Result<orchard::Address> {
-    let raw: [u8; 43] = hex::decode(&l.seller_pay_addr)?.try_into().map_err(|_| anyhow!("pay address length"))?;
-    Option::from(orchard::Address::from_raw_address_bytes(&raw)).ok_or_else(|| anyhow!("pay address"))
+/// Unix seconds; NOW=<secs> overrides it for lease tests.
+fn now() -> Result<u64> {
+    match std::env::var("NOW") {
+        Ok(v) => Ok(v.parse()?),
+        Err(_) => Ok(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs()),
+    }
 }
 
-/// Identifies one version of a listing: BLAKE2b-256 of its JSON encoding.
-fn listing_id(l: &Listing) -> Result<[u8; 32]> {
-    let h = blake2b_simd::Params::new().hash_length(32).personal(b"CarrierListing01").hash(&serde_json::to_vec(l)?);
-    Ok(h.as_bytes().try_into()?)
+fn address(hex_raw: &str) -> Result<orchard::Address> {
+    let raw: [u8; 43] = hex::decode(hex_raw)?.try_into().map_err(|_| anyhow!("address length"))?;
+    Option::from(orchard::Address::from_raw_address_bytes(&raw)).ok_or_else(|| anyhow!("address"))
 }
 
-/// Runs R1 to R3 for `pkg` with `holder` (from the collection's genesis height) and returns the
-/// chain index, the held carrier, its hop number and its Action index. Anything other than HELD
-/// is refused.
+/// The public listing's id must match its fields (SPEC 3.1).
+fn checked_listing(l: &PublicListing) -> Result<[u8; 32]> {
+    let id = channel::listing_id(&arr32(&l.coll)?, l.num, l.price, l.expiry_height, &arr32(&l.seller_channel_key)?);
+    if hex::encode(id) != l.listing_id {
+        bail!("REFUSED: listing id does not match the listing's terms");
+    }
+    Ok(id)
+}
+
+fn transcript_for(l: &PublicListing, buyer_key: &str, nonce: &str) -> Result<[u8; 32]> {
+    Ok(channel::transcript(&channel::Terms {
+        listing_id: arr32(&l.listing_id)?,
+        coll: arr32(&l.coll)?,
+        num: l.num,
+        price: l.price,
+        expiry_height: l.expiry_height,
+        seller_key: arr32(&l.seller_channel_key)?,
+        buyer_key: arr32(buyer_key)?,
+        nonce: arr32(nonce)?,
+    }))
+}
+
+/// Where a buyer gets the provenance it verifies: a disclosed package, or the vault records
+/// (SPEC 4.2) starting at the disclosed carrier.
+enum Provenance<'a> {
+    Package(&'a Package),
+    Records { item: u32, txid: String, action: usize },
+}
+
+/// Runs R1 to R3 for the item with `holder` (from the collection's genesis height) and returns
+/// the chain index, the held carrier, its hop number and its Action index. Anything other than
+/// HELD is refused.
 /// `from` lowers the scan start, so notes older than the genesis (a funding note) are covered too.
-async fn verified_carrier(mut c: Client, col: &Collection, pkg: &Package, holder: &FullViewingKey, from: Option<u64>) -> Result<(Chain, Held, u32, usize)> {
+async fn verified_carrier(mut c: Client, col: &Collection, prov: Provenance<'_>, holder: &FullViewingKey, from: Option<u64>) -> Result<(Chain, Held, u32, usize)> {
     let (_, gh) = get_tx(&mut c, &col.genesis_txid).await?;
     let gh = gh.ok_or_else(|| anyhow!("genesis tx unmined"))?;
     let mut ch = Chain::index(c, from.map_or(gh, |f| f.min(gh))).await?;
     let set = issuance_set(&mut ch, col, &mut |l| println!("{l}")).await?;
+    let rebuilt;
+    let pkg = match prov {
+        Provenance::Package(p) => p,
+        Provenance::Records { item, txid, action } => {
+            rebuilt = if set.items.iter().any(|i| i.num == item && i.txid == txid && i.action == action) {
+                Package { item, label: "issuance carrier".into(), hops: vec![] }
+            } else {
+                let (start, _) = ch.tx(&txid).await?;
+                carrier::verifier::walk_records(&mut ch, col, &set, item, &start, holder, &mut |l| println!("{l}")).await?
+            };
+            &rebuilt
+        }
+    };
     match verify_item(&mut ch, col, &set, pkg, Some(holder), &mut |l| println!("{l}")).await? {
         Verdict::Held { cur, txid, height, hop } => {
             cross_check(&mut ch).await?;
@@ -535,13 +611,14 @@ async fn verified_carrier(mut c: Client, col: &Collection, pkg: &Package, holder
     }
 }
 
-/// Seller: list the item held by SELLER_ACCT's vault, proven by PACKAGE, for PRICE zats.
+/// Seller: list the item held by SELLER_ACCT's vault, proven by PACKAGE, for PRICE zats. Writes
+/// the public listing to SALE_DIR and keeps everything else private.
 async fn sale_list(c: Client) -> Result<()> {
     let col: Collection = load("collection.json")?;
     let pkg: Package = load(&std::env::var("PACKAGE").unwrap_or_else(|_| "package_item1.json".into()))?;
     let (seller, pay_acct) = (acct(env_u32("SELLER_ACCT", 3)?)?, acct(env_u32("PAY_ACCT", 5)?)?);
     // The seller lists only what the verifier says it holds.
-    let (ch, held, hop, _) = verified_carrier(c, &col, &pkg, &seller.fvk, None).await?;
+    let (ch, held, hop, action) = verified_carrier(c, &col, Provenance::Package(&pkg), &seller.fvk, None).await?;
     let price = env_u64("PRICE", 10_000)?;
     if price == 0 || price > MAX_MONEY {
         bail!("PRICE must be between 1 and {MAX_MONEY} zats");
@@ -549,32 +626,106 @@ async fn sale_list(c: Client) -> Result<()> {
     let expiry = ch.to.checked_add(env_u64("LISTING_TTL", 1_000)?).ok_or_else(|| anyhow!("LISTING_TTL overflow"))?;
     // A fresh diversified pay address per listing, so one seller's listings are not linkable.
     let pay = pay_acct.fvk.address_at(OsRng.next_u32(), Scope::External);
-    let l = Listing {
-        collection: col,
-        item: pkg.item,
-        hop,
-        price,
-        seller_pay_addr: hex::encode(pay.to_raw_address_bytes()),
-        seller_pay_ua: ua(&pay),
-        expiry,
-        carrier: held,
-        vault_fvk: fvk_hex(&seller.fvk),
-        package: pkg,
-    };
-    fs::write(listing_path(), serde_json::to_string_pretty(&l)?)?;
-    println!("LISTED item #{} hop {} price {price} zats expiry {expiry} carrier cmx {}.. in {}", l.item, l.hop, &l.carrier.cmx[..12], listing_path().display());
+    let (csk, cpk) = channel::channel_keypair(&mut OsRng);
+    let id = channel::listing_id(&arr32(&col.coll)?, pkg.item, price, expiry, &cpk);
+    let public = PublicListing { listing_id: hex::encode(id), coll: col.coll.clone(), num: pkg.item, price, expiry_height: expiry, seller_channel_key: hex::encode(cpk) };
+    fs::write(listing_path(), serde_json::to_string_pretty(&public)?)?;
+    let item = pkg.item;
+    save(
+        "listing_private.json",
+        &SellerListing { public, channel_sk: hex::encode(csk), carrier: held, carrier_action: action, vault_fvk: fvk_hex(&seller.fvk), pay_addr: hex::encode(pay.to_raw_address_bytes()), package: pkg, seen_nonces: vec![], lease: None },
+    )?;
+    println!("LISTED item #{item} hop {hop} price {price} zats expiry {expiry}, listing {}.. in {}", &hex::encode(id)[..12], listing_path().display());
     Ok(())
 }
 
-/// Buyer: verify the listed item from chain (R1 to R3), then build the joint tx as a PCZT with
-/// the carrier pair in one Action, prove it, sign only the buyer's funding spend, and redact.
-/// Test knobs: TAMPER_PRICE=<zats> pays a different amount; EXPIRED=1 builds an already expired
-/// PCZT; PCZT_TTL=<blocks> sets its validity (default 20).
+/// Buyer: an intent for the listing in SALE_DIR, with a fresh channel key, a single-use nonce and
+/// a proof-of-work stamp (POW_BITS, default 16).
+fn sale_intent() -> Result<()> {
+    let l: PublicListing = read_json(&listing_path())?;
+    checked_listing(&l)?;
+    let (csk, cpk) = channel::channel_keypair(&mut OsRng);
+    let mut nonce = [0u8; 32];
+    OsRng.fill_bytes(&mut nonce);
+    let (key, nonce) = (hex::encode(cpk), hex::encode(nonce));
+    let t = transcript_for(&l, &key, &nonce)?;
+    let pow = channel::pow_find(&t, env_u32("POW_BITS", 16)?);
+    let intent = Intent { listing_id: l.listing_id.clone(), buyer_channel_key: key, nonce, pow };
+    fs::write(sale_dir().join("intent.json"), serde_json::to_string_pretty(&intent)?)?;
+    fs::create_dir_all(dir())?;
+    fs::write(dir().join("intent_private.json"), serde_json::to_string_pretty(&BuyerIntent { intent, channel_sk: hex::encode(csk) })?)?;
+    println!("INTENT for listing {}.., transcript {}.., pow stamp {pow}", &l.listing_id[..12], &hex::encode(t)[..12]);
+    Ok(())
+}
+
+/// Seller: check the intent in SALE_DIR (listing, proof of work, nonce not used before), grant
+/// the lease (one per listing, X6), and write the vault-signed, encrypted disclosure. With
+/// RECORDS_ONLY=1 the disclosure carries no package and the buyer walks the vault records.
+async fn sale_disclose(mut c: Client) -> Result<()> {
+    let mut sl: SellerListing = load("listing_private.json")?;
+    let seller = acct(env_u32("SELLER_ACCT", 3)?)?;
+    if fvk_hex(&seller.fvk) != sl.vault_fvk {
+        bail!("this listing is not for SELLER_ACCT's vault");
+    }
+    let i: Intent = read_json(&sale_dir().join("intent.json"))?;
+    if i.listing_id != sl.public.listing_id {
+        bail!("REFUSED: the intent is for another listing");
+    }
+    let t = transcript_for(&sl.public, &i.buyer_channel_key, &i.nonce)?;
+    if !channel::pow_ok(&t, env_u32("POW_BITS", 16)?, i.pow) {
+        bail!("REFUSED: proof of work too weak");
+    }
+    let (id, exp, tip_h) = (arr32(&sl.public.listing_id)?, sl.public.expiry_height, tip(&mut c).await?);
+    let mut seen = channel::ReplaySet::default();
+    for n in &sl.seen_nonces {
+        seen.insert(id, exp, arr32(n)?, tip_h);
+    }
+    if !seen.insert(id, exp, arr32(&i.nonce)?, tip_h) {
+        bail!("REFUSED: intent nonce already used, or the listing expired (tip {tip_h})");
+    }
+    let mut leases = channel::Leases::default();
+    if let Some((holder, until)) = &sl.lease {
+        leases.request(id, arr32(holder)?, until.saturating_sub(channel::LEASE_SECS));
+    }
+    match leases.request(id, t, now()?) {
+        channel::Lease::Reserved { until } => bail!("RESERVED: another buyer holds the lease until {until}; this intent waits"),
+        channel::Lease::Granted { until } => sl.lease = Some((hex::encode(t), until)),
+    }
+    sl.seen_nonces.push(i.nonce.clone());
+    save("listing_private.json", &sl)?;
+    let pay: [u8; 43] = hex::decode(&sl.pay_addr)?.try_into().map_err(|_| anyhow!("pay address length"))?;
+    let package = if std::env::var("RECORDS_ONLY").is_ok() { vec![] } else { serde_json::to_vec(&sl.package)? };
+    let d = channel::Disclosure { vault_fvk: seller.fvk.to_bytes(), carrier_txid: txid_bytes(&sl.carrier.txid)?, carrier_action: u32::try_from(sl.carrier_action)?, pay_addr: pay, package };
+    let m = channel::seal_disclosure(&d, &seller.sak, &arr32(&i.buyer_channel_key)?, 0, &t, &mut OsRng)?;
+    fs::write(sale_dir().join("disclosure.bin"), &m)?;
+    println!("DISCLOSED to transcript {}.. (lease until {}), {} bytes{}", &hex::encode(t)[..12], sl.lease.as_ref().map_or(0, |l| l.1), m.len(), if d.package.is_empty() { ", records only" } else { "" });
+    Ok(())
+}
+
+/// Buyer: open and verify the disclosure (vault signature over its own transcript), verify the
+/// item from chain (R1 to R3, with the package or the vault records), then build the joint tx as
+/// a PCZT with the carrier pair in one Action, prove it, sign only the buyer's funding spend,
+/// redact, and post it encrypted to the seller's channel key. COLLECTION=<path> is the public
+/// collection record. Test knobs: TAMPER_PRICE=<zats> pays a different amount; EXPIRED=1 builds
+/// an already expired PCZT; PCZT_TTL=<blocks> sets its validity (default 20).
 async fn sale_buy(c: Client) -> Result<()> {
     let mut c = c;
-    let l: Listing = serde_json::from_slice(&read_capped(&listing_path())?)?;
-    let lid = listing_id(&l)?;
-    let vault = fvk_from_hex(&l.vault_fvk)?;
+    let l: PublicListing = read_json(&listing_path())?;
+    let lid = checked_listing(&l)?;
+    let bi: BuyerIntent = read_json(&dir().join("intent_private.json"))?;
+    if bi.intent.listing_id != l.listing_id {
+        bail!("our intent is for another listing");
+    }
+    let t = transcript_for(&l, &bi.intent.buyer_channel_key, &bi.intent.nonce)?;
+    let d = channel::open_disclosure(&arr32(&bi.channel_sk)?, 0, &t, &read_capped(&sale_dir().join("disclosure.bin"))?)?;
+    println!("  disclosure opened, vault signature verified for our transcript {}..", &hex::encode(t)[..12]);
+    let vault = FullViewingKey::from_bytes(&d.vault_fvk).ok_or_else(|| anyhow!("bad vault FVK"))?;
+    let col: Collection = read_json(std::path::Path::new(&std::env::var("COLLECTION").map_err(|_| anyhow!("set COLLECTION to the public collection record"))?))?;
+    if col.coll != l.coll {
+        bail!("REFUSED: COLLECTION is not the listing's collection");
+    }
+    let disclosed_pkg: Option<Package> = if d.package.is_empty() { None } else { Some(serde_json::from_slice(&d.package)?) };
+    let (ctxid, caction) = (txid_hex(&d.carrier_txid), d.carrier_action as usize);
     // BUYER_VAULT_ACCT=auto allocates a fresh vault index (SPEC 2.1 step 6); a number is a role
     // shifted by OFF, as for every other role.
     let auto = std::env::var("BUYER_VAULT_ACCT").as_deref() == Ok("auto");
@@ -590,31 +741,36 @@ async fn sale_buy(c: Client) -> Result<()> {
     let (a0, bv) = (acct(0)?, acct_at(bv_idx)?);
     let fund_tx = std::env::var("FUND_TX").map_err(|_| anyhow!("set FUND_TX to the tx holding the buyer's funding note"))?;
     let (fund, fh) = find_change(&mut c, &fund_tx, &a0.fvk).await?;
-    // Never trust the listing's note: verify the current carrier from chain with the listed key.
-    // The scan also starts no later than the funding note, so its liveness check is complete.
-    let (mut ch, held, hop, action) = verified_carrier(c, &l.collection, &l.package, &vault, Some(fh)).await?;
+    // Verify the current carrier from chain with the disclosed key; the note used from here on is
+    // the one decrypted from chain. The scan starts no later than the funding note, so its
+    // liveness check is complete.
+    let prov = match &disclosed_pkg {
+        Some(p) => Provenance::Package(p),
+        None => Provenance::Records { item: l.num, txid: ctxid.clone(), action: caction },
+    };
+    let (mut ch, held, hop, action) = verified_carrier(c, &col, prov, &vault, Some(fh)).await?;
     let tip_h = ch.to;
-    if tip_h >= l.expiry {
-        bail!("listing expired at {} (tip {tip_h})", l.expiry);
+    if tip_h >= l.expiry_height {
+        bail!("listing expired at {} (tip {tip_h})", l.expiry_height);
     }
-    if held.cmx != l.carrier.cmx || hop != l.hop || l.package.item != l.item {
-        bail!("REFUSED: the listing does not match the verified current carrier");
+    if held.txid != ctxid || action != caction || disclosed_pkg.as_ref().is_some_and(|p| p.item != l.num) {
+        bail!("REFUSED: the disclosure does not match the verified current carrier");
     }
     let carrier = note_from_json(&held.note)?;
     let ccmx = arr32(&held.cmx)?;
-    println!("  verified from chain: item #{} hop {hop}, carrier {}.. held by the listed vault key, unspent", l.item, &held.cmx[..12]);
+    println!("  verified from chain: item #{} hop {hop}, carrier {}.. held by the disclosed vault key, unspent", l.num, &held.cmx[..12]);
 
     if ch.spent_at(&fund.note.nullifier(&a0.fvk).to_bytes()).is_some() {
         bail!("the funding note in {fund_tx} is already spent");
     }
-    let pay = pay_address(&l)?;
+    let pay = Option::from(orchard::Address::from_raw_address_bytes(&d.pay_addr)).ok_or_else(|| anyhow!("disclosed pay address"))?;
     let pay_value = env_u64("TAMPER_PRICE", l.price)?;
     let need = pay_value.checked_add(fee(3)).ok_or_else(|| anyhow!("price overflow"))?;
     let change = fund.note.value().inner().checked_sub(need).ok_or_else(|| anyhow!("funding note too small"))?;
-    let coll = arr32(&l.collection.coll)?;
+    let coll = arr32(&l.coll)?;
     let next_hop = hop.checked_add(1).ok_or_else(|| anyhow!("hop overflow"))?;
     // SPEC 4.2: the successor's memo names the seller's vault key and where its carrier was made,
-    // taken from the chain verification above, not from the listing.
+    // taken from the chain verification above.
     let record = VaultRecord {
         fvk: vault.to_bytes(),
         kind: if hop == 0 { PTR_ISSUANCE } else { PTR_TRANSFER },
@@ -624,14 +780,14 @@ async fn sale_buy(c: Client) -> Result<()> {
     let outs = [
         // 0: successor carrier, must share the carrier spend's Action. The buyer's own OVK, so
         //    the seller cannot recover the buyer's new vault address from chain.
-        Out { to: addr(&bv), value: 0, memo: encode_memo(K_HOP, &coll, l.item, next_hop, &record.encode()), ovk: ovk(&bv) },
-        // 1: payment to the listing's pay address
+        Out { to: addr(&bv), value: 0, memo: encode_memo(K_HOP, &coll, l.num, next_hop, &record.encode()), ovk: ovk(&bv) },
+        // 1: payment to the disclosed pay address
         Out { to: pay, value: pay_value, memo: empty_memo(), ovk: ovk(&a0) },
         // 2: buyer change, present even at zero value; the buyer pays the fee. Its memo is the
         //    account index record (SPEC 4.3), so the buyer's seed alone finds the new vault.
-        Out { to: addr(&a0), value: change, memo: encode_memo(K_ACCOUNT, &coll, l.item, next_hop, &encode_account_record(bv_idx)), ovk: ovk(&a0) },
+        Out { to: addr(&a0), value: change, memo: encode_memo(K_ACCOUNT, &coll, l.num, next_hop, &encode_account_record(bv_idx)), ovk: ovk(&a0) },
     ];
-    let (cpath, anchor) = witness(&mut ch.c, &ccmx, l.carrier.height, tip_h).await?;
+    let (cpath, anchor) = witness(&mut ch.c, &ccmx, held.height, tip_h).await?;
     let (fpath, fanchor) = witness(&mut ch.c, &fund.cmx, fh, tip_h).await?;
     if anchor != fanchor {
         bail!("witness anchors differ");
@@ -661,43 +817,53 @@ async fn sale_buy(c: Client) -> Result<()> {
         listing_id: lid,
         secrets,
     };
-    let t = std::time::Instant::now();
+    let tm = std::time::Instant::now();
     let pk = carrier_sale::proving_key();
-    println!("  proving key {:.1}s", t.elapsed().as_secs_f64());
+    println!("  proving key {:.1}s", tm.elapsed().as_secs_f64());
     let built = carrier_sale::buyer_build(sale, &pk, &mut OsRng, &mut |l| println!("{l}"))?;
     if auto {
         // Reserve the index: a later purchase must not reuse it while this PCZT may still mine.
         fs::write(dir().join("vault_next"), (bv_idx + 1).to_string())?;
     }
-    fs::write(sale_pczt_path(), &built.pczt)?;
-    println!("SALE-BUY wrote {} ({} bytes), carrier action {}, pays {pay_value} zats", sale_pczt_path().display(), built.pczt.len(), built.carrier_action);
+    let enc = channel::seal(&arr32(&l.seller_channel_key)?, channel::TYPE_PCZT, channel::BUYER_TO_SELLER, 0, &t, &built.pczt, &mut OsRng)?;
+    fs::write(sale_pczt_path(), &enc)?;
+    println!("SALE-BUY wrote {} ({} bytes PCZT, {} encrypted), carrier action {}, pays {pay_value} zats", sale_pczt_path().display(), built.pczt.len(), enc.len(), built.carrier_action);
     Ok(())
 }
 
-/// Seller: check the buyer's PCZT against the listing, sign the carrier spend, extract (which
-/// verifies the proof and every signature) and broadcast unless DRY.
+/// Seller: open the PCZT under the lease holder's transcript, check it against the listing, sign
+/// the carrier spend, extract (which verifies the proof and every signature) and broadcast
+/// unless DRY.
 /// Test knob: TAMPER_AFTER_SIGN=1 flips one byte of the payment ciphertext after signing and
 /// checks that extraction fails. Nothing is broadcast in that mode.
 async fn sale_accept(c: Client, dry: bool) -> Result<()> {
-    let l: Listing = serde_json::from_slice(&read_capped(&listing_path())?)?;
+    let sl: SellerListing = load("listing_private.json")?;
     let (seller, pay_acct) = (acct(env_u32("SELLER_ACCT", 3)?)?, acct(env_u32("PAY_ACCT", 5)?)?);
-    if fvk_hex(&seller.fvk) != l.vault_fvk {
+    if fvk_hex(&seller.fvk) != sl.vault_fvk {
         bail!("this listing is not for SELLER_ACCT's vault");
     }
-    let pay = pay_address(&l)?;
+    let pay = address(&sl.pay_addr)?;
     if pay_acct.fvk.scope_for_address(&pay) != Some(Scope::External) {
         bail!("the listing's pay address does not belong to PAY_ACCT");
     }
-    let carrier = note_from_json(&l.carrier.note)?;
+    // Only the lease holder may post a PCZT (X6), and only under its own transcript.
+    let (holder, until) = sl.lease.clone().ok_or_else(|| anyhow!("REFUSED: no lease granted for this listing"))?;
+    if now()? >= until {
+        bail!("REFUSED: the lease expired at {until}");
+    }
+    let t = arr32(&holder)?;
+    let pczt = channel::open(&arr32(&sl.channel_sk)?, channel::TYPE_PCZT, channel::BUYER_TO_SELLER, 0, &t, &read_capped(&sale_pczt_path())?)
+        .map_err(|e| anyhow!("REFUSED: the PCZT is not from the lease holder ({e})"))?;
+    let carrier = note_from_json(&sl.carrier.note)?;
     let nf = carrier.nullifier(&seller.fvk).to_bytes();
-    let ch = Chain::index(c, l.carrier.height).await?;
+    let ch = Chain::index(c, sl.carrier.height).await?;
     // The carrier must still be ours to sell; the rest of the checks are in carrier-sale.
     if ch.spent_at(&nf).is_some() {
         bail!("REFUSED: the carrier is already spent");
     }
-    let terms = carrier_sale::SellerTerms { listing_id: listing_id(&l)?, listing_expiry: l.expiry, price: l.price, pay, pay_fvk: &pay_acct.fvk, carrier_nf: nf, tip: ch.to };
-    let checked = carrier_sale::seller_check(&read_capped(&sale_pczt_path())?, &terms)?;
-    println!("  checks ok: carrier unspent, {}", checked.summary);
+    let terms = carrier_sale::SellerTerms { listing_id: arr32(&sl.public.listing_id)?, listing_expiry: sl.public.expiry_height, price: sl.public.price, pay, pay_fvk: &pay_acct.fvk, carrier_nf: nf, tip: ch.to };
+    let checked = carrier_sale::seller_check(&pczt, &terms)?;
+    println!("  checks ok: lease holder, carrier unspent, {}", checked.summary);
     let (ai, pay_actions) = (checked.carrier_action, checked.payment_actions.clone());
     let signed = carrier_sale::seller_sign(checked, &seller.sak)?;
     if std::env::var("TAMPER_AFTER_SIGN").is_ok() {
@@ -733,9 +899,9 @@ async fn sale_accept(c: Client, dry: bool) -> Result<()> {
     if r.error_code != 0 {
         bail!("rejected by node: code {} {}", r.error_code, r.error_message);
     }
-    let mut pkg = l.package.clone();
-    pkg.hops.push(Hop { note: l.carrier.note.clone(), vault_fvk: l.vault_fvk.clone() });
-    save(&format!("package_item{}_hop{}.json", l.item, pkg.hops.len()), &pkg)?;
+    let mut pkg = sl.package.clone();
+    pkg.hops.push(Hop { note: sl.carrier.note.clone(), vault_fvk: sl.vault_fvk.clone() });
+    save(&format!("package_item{}_hop{}.json", pkg.item, pkg.hops.len()), &pkg)?;
     save("sale.json", &serde_json::json!({ "txid": txid, "carrier_action": ai, "successor_cmx": succ }))?;
     println!("SALE-ACCEPT {txid}");
     Ok(())
