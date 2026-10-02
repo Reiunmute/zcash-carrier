@@ -1,0 +1,11 @@
+  disclosure opened, vault signature verified for our transcript 0bf6dc325009..
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+  verified from chain: item #1 hop 0, carrier c361e2d029c3.. held by the disclosed vault key, unspent
+  proving key 0.9s
+  attempt 1: bound ok, carrier action 1, funding action 0
+  pczt expiry_height 4435647
+  buyer-alone extract refused: Ironwood(Extract(MissingSpendAuthSig))
+  redaction check: no funding FVK, funding-note fields or buyer addresses in the PCZT
+SALE-BUY wrote <SALE_DIR>/sale.pczt (14932 bytes PCZT, 14980 encrypted), carrier action 1, pays 10000 zats

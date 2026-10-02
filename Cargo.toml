@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/carrier-core", "crates/carrier-sale", "crates/carrier-wasm"]
+members = [".", "crates/carrier-core", "crates/carrier-sale", "crates/carrier-wasm", "crates/orderbook"]
 
 [package]
 name = "carrier"

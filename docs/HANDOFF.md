@@ -52,9 +52,11 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | lightwalletd trust | one server. txid, hash-link and compact/full checks done; `LWD2` content cross-check implemented, no independent second server reachable yet; no proof-of-work validation | OPEN_ISSUES #5 |
 | FINAL hard seal | done on testnet 2026-10-02: collection `5fc17ef389fdae9b`, FINAL tx `512832b969c8…`, R1 `sealed=true` | OPEN_ISSUES #2, `evidence/testnet-2026-10-02/` |
 | P5 Action counts | measured 2026-10-02; the 3-Action sale shape is in SPEC draft 4 | `research/p5-action-counts-2026-10-02.md` |
-| Vault and account index records (P4) | implemented 2026-10-02: `sale-buy` writes both records, `verify <collection> <from> walk:<item>:<txid>` rebuilds provenance from records, `carrier recover` finds owned items from the seed alone, `BUYER_VAULT_ACCT=auto` allocates a fresh vault index (P8). DRY-tested only; the on-chain test is one broadcast (`scripts/run_p4.sh`, needs Ryot's approval) | `evidence/testnet-2026-10-02/p4_dry_records.log` |
+| Vault and account index records (P4) | implemented 2026-10-02: `sale-buy` writes both records, `verify <collection> <from> walk:<item>:<txid>` rebuilds provenance from records, `carrier recover` finds owned items from the seed alone, `BUYER_VAULT_ACCT=auto` allocates a fresh vault index (P8). On testnet since 2026-10-02: tx `e96845ecfc84…`, provenance rebuilt from the record alone (HELD) and recovered from the buyer seed alone | `evidence/testnet-2026-10-02/broadcast_p4/`, `verify.sh` |
 | Core crates (P7) | `crates/carrier-core`: formats, keys, decryption, rules R1 to R3, vault signatures, collectibles seed. `crates/carrier-sale`: the PCZT sale (buyer build, prove, sign, redact; seller checks, sign, extract), used by the CLI. Both build for wasm32; `crates/carrier-wasm` exports them (`sale` feature), and `verify.sh` checks JavaScript results match native and runs the sale self-test in wasm (32.4 s, Node, 1 thread) | `crates/`, `research/stage1-checks/RESULTS.md` |
 | Disclosure channel (P10) | primitives in `carrier-core::channel` (SPEC 3.2): transcript, AAD, HPKE, vault-signed disclosure, PoW, replay set, lease. Unit tests (incl. a relay key swap) and wasm parity pass. The CLI sale runs over it: `sale-list` (public listing only), `sale-intent`, `sale-disclose`, `sale-buy`, `sale-accept`; DRY-tested with lease, replay, tamper and relay cases. No order book server yet | `crates/carrier-core/src/channel.rs`, `crates/carrier-wasm/parity.cjs` |
+| Order book (SPEC 2, 3.2) | `crates/orderbook` (axum, in memory): public listings, intents with PoW and replay checks, opaque messages per transcript, delete token, expiry pruning. Unit tests; DRY sale end to end through it (`scripts/orderbook_e2e.sh`) | `evidence/testnet-2026-10-02/orderbook_e2e_dry.log` |
+| Anchor age (P5) | measured: testnet anchors cluster at 3 to 6 and 10 to 15 blocks; `sale-buy` anchors 2 to 11 below the tip | `research/p5-anchor-ages-2026-10-02.md` |
 | Browser network (P6) | grpc-web streaming with Ironwood actions verified on ChainSafe, relay streams | `research/stage1-checks/RESULTS.md` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
 | Marketplace SPEC | draft 4 (draft 3 + X1 to X8), **approved by Ryot 2026-10-02**, default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
@@ -108,14 +110,15 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 
   The FVKs of acct0, acct3, acct5 and acct6 are published in `evidence/testnet-2026-09-30/viewing_keys.json` so `verify.sh` runs fully without the seed.
 
-  Separate buyer seed (`STATE=state/buyer OFF=10`, created 2026-10-02): acct0 funding, acct6 holds item #1 since the 2026-10-02 sale. Its FVKs are in `evidence/testnet-2026-10-02/viewing_keys.json`.
+  Separate buyer seed (`STATE=state/buyer OFF=10`, created 2026-10-02): acct0 funding, acct6 holds item #1 since the 2026-10-02 sale, acct7 (index 17) holds sealed-collection item #1 since the P4 sale. Its FVKs are in `evidence/testnet-2026-10-02/viewing_keys.json`.
 
   Sealed test collection `5fc17ef389fdae9b` (`STATE=state OFF=30 FILES_DIR=state/c2`): issuer acct1 (index 31), item #1 vault acct2 (index 32), item #2 vault acct4 (index 34). Funding is still the main seed's acct0.
 
   `carrier keys` prints the FVKs. FVKs are fine to show. Never print spending keys.
 - **Funds:** faucet 10,000,000 zats. Checked 2026-10-02 against nullifiers up to height 4435339 (scratch read-only scan):
   - main seed acct0: 9,545,000 zats, action 2 of `512832b9…` (C2 change). Use `FUND_TX=512832b969c897752116be1649d5a982ad2a82e34199bc1d1e9f11bfef9b68f3`.
-  - buyer seed acct0: 275,000 zats, action 2 of `281788d7…` (sale change). Use `FUND_TX=281788d78f3e8ab39b208373c9810d0e0383c2cf54beb1b342dfe5bb03c4bf98` with `STATE=state/buyer`.
+  - buyer seed acct0: 250,000 zats, action 2 of `e96845ec…` (P4 sale change, checked to height 4435634). Use `FUND_TX=e96845ecfc84008674195d8ee77fd433cdb7cdfc3464711ae92221d58ada3b1d` with `STATE=state/buyer`.
+  - main seed `OFF=30` acct5 (index 35): 10,000 zats, the P4 sale payment.
   - main seed acct5: 20,000 zats, the two 10,000 zat sale payments (`6bdeb823…`, `281788d7…`).
   - Fees paid on 2026-10-02: 10,000 (A), 15,000 each (B, C1, C2).
 - **Faucets:**

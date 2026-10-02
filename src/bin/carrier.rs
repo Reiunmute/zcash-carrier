@@ -787,8 +787,17 @@ async fn sale_buy(c: Client) -> Result<()> {
         //    account index record (SPEC 4.3), so the buyer's seed alone finds the new vault.
         Out { to: addr(&a0), value: change, memo: encode_memo(K_ACCOUNT, &coll, l.num, next_hop, &encode_account_record(bv_idx)), ovk: ovk(&a0) },
     ];
-    let (cpath, anchor) = witness(&mut ch.c, &ccmx, held.height, tip_h).await?;
-    let (fpath, fanchor) = witness(&mut ch.c, &fund.cmx, fh, tip_h).await?;
+    // SPEC 5 (P5): anchor a few blocks below the tip, as common wallets do. Measured testnet
+    // anchor ages cluster at 3 to 6 and 10 to 15 blocks (research/p5-anchor-ages-2026-10-02.md);
+    // a depth of 2 to 11 plus the mining delay lands there. Never below the spent notes' heights.
+    let depth = match std::env::var("ANCHOR_DEPTH") {
+        Ok(v) => v.parse::<u64>().context("ANCHOR_DEPTH")?,
+        Err(_) => 2 + OsRng.next_u64() % 10,
+    };
+    let anchor_h = tip_h.saturating_sub(depth).max(held.height).max(fh);
+    println!("  anchor at height {anchor_h} (tip {tip_h}, depth {})", tip_h - anchor_h);
+    let (cpath, anchor) = witness(&mut ch.c, &ccmx, held.height, anchor_h).await?;
+    let (fpath, fanchor) = witness(&mut ch.c, &fund.cmx, fh, anchor_h).await?;
     if anchor != fanchor {
         bail!("witness anchors differ");
     }

@@ -1,0 +1,15 @@
+{
+  "item": 1,
+  "label": "item #1 at issuance",
+  "hops": [
+    {
+      "note": {
+        "recipient": "de7d2f769ce31e61fe009d1b2e6904a63e092e8f53c6badf311cfaa5e7b305d107b3b1a01af0f789b25c06",
+        "value": 0,
+        "rho": "fb469cb697f1c18499c132f8a92ee34bc90be4968cfa7f3a41055a69ed5e3716",
+        "rseed": "67fa439f21a84fdd7e541129a4ab6e2be9c96dffb643391938d19e285865ef58"
+      },
+      "vault_fvk": "0f43652753d172ff2dd49c7fa71ff88c43c2168696562445af934f4d5e28961b83992172104923dcf6904c2f4adcd2b6e336195adfc70297848d4222e9c4c13161f0937e409ee8c9d90b697ff00feff884d8fa3b9af5e200ae200fc5fb94cd3a"
+    }
+  ]
+}

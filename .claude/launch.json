@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "orderbook",
+      "runtimeExecutable": "./target/release/orderbook",
+      "runtimeArgs": [],
+      "port": 8787
+    }
+  ]
+}

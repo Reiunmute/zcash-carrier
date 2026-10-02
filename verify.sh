@@ -17,6 +17,7 @@ E2=evidence/testnet-2026-09-30
 E3=evidence/testnet-2026-10-02
 SALE2_TX=281788d78f3e8ab39b208373c9810d0e0383c2cf54beb1b342dfe5bb03c4bf98   # separate-seed sale
 SEAL_GENESIS_H=4435127                                                    # sealed collection genesis
+P4_TX=e96845ecfc84008674195d8ee77fd433cdb7cdfc3464711ae92221d58ada3b1d     # first sale with vault records
 MINT3=78a9a662f825d576abdf14e4d47fe6244a68ecd0a54135fca76eca32001cc3fb
 SALE_TX=6bdeb823ff6556dce7ef8c254c8ceaa257913cc820c43da271c52dabdc98ba5b
 fail() { echo "VERIFY.SH FAIL: $*" >&2; exit 1; }
@@ -36,6 +37,7 @@ echo "== build"
 cargo build --release --quiet
 cargo test --release --quiet -p carrier-core >/dev/null || fail "carrier-core unit tests"
 cargo test --release --quiet -p carrier-sale >/dev/null || fail "carrier-sale self-test (native)"
+cargo test --release --quiet -p orderbook >/dev/null || fail "orderbook unit tests"
 # carrier-core must keep compiling for the browser (marketplace SPEC P7).
 if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
   cargo build --release --quiet -p carrier-core --target wasm32-unknown-unknown || fail "carrier-core does not build for wasm32"
@@ -73,6 +75,7 @@ OLD=$(key acct3)       # vault that bought item #1 on 2026-09-29 and sold it on 
 PAY=$(key acct5)       # seller pay key of the 2026-09-30 sale
 BUYER=$(key acct6)     # vault that bought item #1 on 2026-09-30 and sold it on 2026-10-02
 BUYER2=$(key3 buyer_acct6)   # separate buyer seed's vault, holds item #1 since 2026-10-02
+P4_HOLDER=$(key3 buyer_acct7) # buyer seed's vault 17, holds sealed-collection item #1 since the P4 sale
 if [ -f state/seed.hex ]; then
   keys=$(STATE=state OFF=10 ./target/release/carrier keys)
   for a in acct0 acct3 acct5 acct6; do
@@ -128,6 +131,21 @@ echo "== FINAL hard seal (new collection, 2026-10-02)"
 run 0 env -u HOLDER_FVK $V "$E3/collection_sealed.json" "$SEAL_GENESIS_H"
 want "$out" "R1 issuance set: 2 item(s), finalized=true, sealed=true"
 
+echo "== vault records (P4 sale over the disclosure channel): provenance from the chain alone"
+# HELD while the buyer seed keeps the item; a later sale turns this into SPENT (exit 4).
+run 0 env HOLDER_FVK="$P4_HOLDER" $V "$E3/collection_sealed.json" "$SEAL_GENESIS_H" "walk:1:$P4_TX"
+want "$out" "record walk: hop 1 <- 7eab6bd6bee4..:0 (issuance)"
+want "$out" "VERIFY HELD: item #1"
+run 0 env HOLDER_FVK="$P4_HOLDER" $V "$E3/collection_sealed.json" "$SEAL_GENESIS_H" "$E3/package_sealed_item1_hop1.json"
+want "$out" "VERIFY HELD: item #1"
+run 2 env HOLDER_FVK="$(key3 sealed_acct2)" $V "$E3/collection_sealed.json" "$SEAL_GENESIS_H" "walk:1:$P4_TX"
+want "$out" "VERIFY FAIL: the holder key opens no HOP carrier"
+if [ -f state/buyer/seed.hex ]; then
+  # Seed-only recovery from the account index record in the P4 change output.
+  run 0 env STATE=state/buyer BIRTHDAY=4435100 ./target/release/carrier recover
+  want "$out" "RECOVERED item #1 of collection 5fc17ef389fdae9b.. hop 1, vault index 17"
+fi
+
 echo "== a package without a holder key"
 run 5 env -u HOLDER_FVK $V "$E/collection.json" 4416690 "$E3/package_item1_hop3.json"
 want "$out" "VERIFY UNVERIFIED: item #1"
@@ -140,6 +158,8 @@ want "$out" "PAYMENT 10000 zats to the given key in $E2/sale_tx.hex"
 want "$out" "identical to the server copy"
 run 0 $V payment-file "$E3/sale_tx.hex" "$SALE2_TX" "$PAY" 10000
 want "$out" "PAYMENT 10000 zats to the given key in $E3/sale_tx.hex"
+run 0 $V payment-file "$E3/sale_p4_tx.hex" "$P4_TX" "$(key3 sealed_acct5)" 10000
+want "$out" "PAYMENT 10000 zats to the given key in $E3/sale_p4_tx.hex"
 
 echo "== artwork rebuilt from chain bytes"
 art=$(python3 scripts/render_from_chain.py 1 2)

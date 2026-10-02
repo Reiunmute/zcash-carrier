@@ -105,3 +105,15 @@ The CLI sale now follows SPEC 3.1 and 3.2. `listing.json` holds only `{listing_i
 | I. Disclosure without a package (`RECORDS_ONLY=1`) | buyer verifies from chain alone and the sale extracts (DRY) |
 
 Case I is an issuance carrier, so no vault record was needed; walking records past issuance is covered by `verify ... walk:` (`p4_dry_records.log`). A relay that decrypts and re-encrypts a disclosure under the buyer's transcript fails the vault signature check; that case is a unit test (`carrier-core::channel`).
+
+## P4 broadcast: the first sale with vault records, over the disclosure channel (`broadcast_p4/`)
+
+Approved by Ryot and run with `scripts/run_p4.sh`. One tx: `e96845ecfc84008674195d8ee77fd433cdb7cdfc3464711ae92221d58ada3b1d`, height 4435628. Item #1 of the sealed collection `5fc17ef389fdae9b` moved from the main seed's vault (`OFF=30` acct2, index 32) to the buyer seed's fresh vault 17, and 10,000 zats went to a per-listing address of `OFF=30` acct5. Buyer and seller used the channel flow: public listing, intent, lease and signed disclosure, encrypted PCZT.
+
+- `V_walk.log`: `verify ... walk:1:e96845ec…` with the new holder's key rebuilds the provenance from the vault record in the successor's memo alone (one hop, pointer kind issuance) and returns HELD. No package was used.
+- `V_package.log`: the package the seller saved gives the same verdict (`package_sealed_item1_hop1.json`).
+- `V_oldholder.log`: the former vault's key opens no carrier in the tx (exit 2).
+- `V_payment.log`: 10,000 zats to the seller's pay key; `sale_p4_tx.hex` holds the raw bytes.
+- `R_recover.log`: `carrier recover` on the buyer seed, from height 4435100, finds the account index record in the change output: item #1, hop 1, vault index 17, unspent; next vault index 18.
+
+New view-only keys in `viewing_keys.json`: `buyer_acct7`, `sealed_acct2`, `sealed_acct5`. `verify.sh` re-checks the walk, the package, the former holder, the payment from the published bytes, and (with the buyer seed present) the recovery.

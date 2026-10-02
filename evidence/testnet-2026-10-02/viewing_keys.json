@@ -1,5 +1,5 @@
 {
-  "note": "Full viewing keys of the separate buyer seed (state/buyer) used in the 2026-10-02 sale. Viewing only: they cannot spend.",
+  "note": "Full viewing keys used in the 2026-10-02 runs: the separate buyer seed (state/buyer, buyer_*) and the main seed's accounts for the sealed collection (STATE=state OFF=30, sealed_*). Viewing only: they cannot spend.",
   "network": "test",
   "buyer_acct0": {
     "role": "buyer seed funding (received 300,000 zats in tx A, paid the sale)",
@@ -8,5 +8,17 @@
   "buyer_acct6": {
     "role": "buyer seed vault, holds item #1 since tx B",
     "fvk": "b007839319a24c0a0def19d0b407a7cb0e96b00041741428b1f565b398c2022e527dd0cbc2aa568a661e94f89b1b3166acf4bde1b9b6b1d755ec54a549dcb30647c84fe4475822a924d160227e5d16dbc373c3823b17ef0f5be823e81c9cd71e"
+  },
+  "buyer_acct7": {
+    "fvk": "11f91055ff81757be737270894d94cc69df4b39e28d3d3d382aafc834bef4e1c6a4d53b6e2bcfb5f1b0a10e7926d20be4ec2f9e8051507eda25cc0ae84f2963ef422c50cf400d6d1d4e338bd94ed7d780b3d14425cf90970399830b8731d4e13",
+    "role": "buyer seed, ZIP-32 index 17: holds item #1 of the sealed collection since the P4 sale e96845ec"
+  },
+  "sealed_acct2": {
+    "fvk": "0f43652753d172ff2dd49c7fa71ff88c43c2168696562445af934f4d5e28961b83992172104923dcf6904c2f4adcd2b6e336195adfc70297848d4222e9c4c13161f0937e409ee8c9d90b697ff00feff884d8fa3b9af5e200ae200fc5fb94cd3a",
+    "role": "main seed, ZIP-32 index 32: vault of sealed-collection item #1 until the P4 sale"
+  },
+  "sealed_acct5": {
+    "fvk": "968b87ebe91cc54ac03690cd248bdee41c5576af45e896f799c60b105e78cb10c19fde71bb7664f35a0d038847d294c800a1c7f1aece3cfbe212e479a30b890ea962877a5470c3636cac9464cd0ba0ffd39351aac1e3a1ea9e2f338ac8e33f36",
+    "role": "main seed, ZIP-32 index 35: seller pay key of the P4 sale"
   }
 }

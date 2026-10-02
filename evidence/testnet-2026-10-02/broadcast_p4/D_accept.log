@@ -1,0 +1,3 @@
+  checks ok: lease holder, carrier unspent, listing open, expiry 4435647 (tip 4435626), branch 37a5165b, 3 actions, carrier spend in action 1, payment 10000 zats
+  extracted tx e96845ecfc84008674195d8ee77fd433cdb7cdfc3464711ae92221d58ada3b1d: 3 actions, 12322 bytes, successor cmx 1fcb838f70d9..
+SALE-ACCEPT e96845ecfc84008674195d8ee77fd433cdb7cdfc3464711ae92221d58ada3b1d

@@ -1,0 +1,4 @@
+== current carrier cmx c361e2d029c3..
+R3 holder opens current carrier: yes, unspent=true
+trust: chain data from one lightwalletd (https://testnet.zec.rocks:443), not cross-checked (set LWD2)
+LISTED item #1 hop 0 price 10000 zats expiry 4436626, listing 5f5ee38e6620.. in <SALE_DIR>/listing.json
