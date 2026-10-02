@@ -156,3 +156,16 @@ Incident: a shell quoting mistake once sent `start = 0` (NaN encoded as 0) to Ch
 - Does not work: direct browser access to `testnet.zec.rocks` (no CORS).
 - Still **unverified**: trial decryption cost in the browser (only transport was measured), whether `pool_types [4]` prunes other pools, ChainSafe availability over time and its rate limits, full-history scan time from Ironwood activation (activation height not checked here), and behaviour in Firefox/Safari (Chromium only).
 - Privacy: the server sees the client IP and every block range requested. Range scans leak less than per-tx lookups (`GetTransaction`), but the SPEC should still treat ChainSafe as a party that observes access patterns.
+
+## P7, 2026-10-02: the whole PCZT sale in wasm
+
+`crates/carrier-sale` holds the sale as pure functions; `selftest` runs it on synthetic notes in a local two-leaf Merkle tree: buyer build (3 Actions, same-Action binding), proving key, proof, buyer signature, redaction and its checks, seller checks, seller signature, and extraction, which verifies the proof and every signature.
+
+| Runtime | Whole self-test |
+|---|---|
+| native, 1 thread (`cargo test --release -p carrier-sale`) | 6.9 s |
+| WASM, Node, 1 thread (`crates/carrier-wasm/sale_selftest.cjs`) | 32.4 s |
+
+- The wasm module with the `sale` feature is 5.0 MB (`wasm-bindgen --target nodejs`, release, not optimised with `wasm-opt`).
+- It needs a C compiler that targets wasm, for `secp256k1-sys` (transparent support in `zcash_primitives`). wasi-sdk 34 (clang 23.1) works: `CC_wasm32_unknown_unknown=~/.local/wasi-sdk/bin/clang AR_wasm32_unknown_unknown=~/.local/wasi-sdk/bin/llvm-ar`.
+- Not measured yet: Chromium, and multithreaded proving for this path. Section 2 suggests about 4x faster with 14 threads.

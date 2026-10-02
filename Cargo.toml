@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/carrier-core", "crates/carrier-wasm"]
+members = [".", "crates/carrier-core", "crates/carrier-sale", "crates/carrier-wasm"]
 
 [package]
 name = "carrier"
@@ -8,6 +8,7 @@ edition = "2021"
 
 [dependencies]
 carrier-core = { path = "crates/carrier-core" }
+carrier-sale = { path = "crates/carrier-sale" }
 orchard = "0.15.5"
 zcash_primitives = "0.30.1"
 zcash_protocol = "0.10.6"

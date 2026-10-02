@@ -35,6 +35,7 @@ mkdir -p out
 echo "== build"
 cargo build --release --quiet
 cargo test --release --quiet -p carrier-core >/dev/null || fail "carrier-core unit tests"
+cargo test --release --quiet -p carrier-sale >/dev/null || fail "carrier-sale self-test (native)"
 # carrier-core must keep compiling for the browser (marketplace SPEC P7).
 if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
   cargo build --release --quiet -p carrier-core --target wasm32-unknown-unknown || fail "carrier-core does not build for wasm32"
@@ -47,6 +48,18 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
     cargo run --release --quiet --example coreref > out/coreref.json || fail "coreref"
     node crates/carrier-wasm/parity.cjs out/wasmpkg out/coreref.json >/dev/null || fail "wasm results differ from native"
     echo "   wasm (JavaScript) and native results match"
+    # The PCZT sale path (carrier-sale) needs a wasm-capable C compiler for secp256k1-sys.
+    WASI_SDK=${WASI_SDK:-$HOME/.local/wasi-sdk}
+    if [ -x "$WASI_SDK/bin/clang" ]; then
+      CC_wasm32_unknown_unknown="$WASI_SDK/bin/clang" AR_wasm32_unknown_unknown="$WASI_SDK/bin/llvm-ar" \
+        cargo build --release --quiet -p carrier-wasm --features sale --target wasm32-unknown-unknown || fail "carrier-wasm sale build"
+      rm -rf out/wasmsale
+      "$HOME/.cargo/bin/wasm-bindgen" --target nodejs --out-dir out/wasmsale target/wasm32-unknown-unknown/release/carrier_wasm.wasm || fail "wasm-bindgen (sale)"
+      node crates/carrier-wasm/sale_selftest.cjs out/wasmsale > out/wasm_sale_selftest.log || fail "wasm sale selftest"
+      echo "   sale self-test in wasm: $(tail -1 out/wasm_sale_selftest.log)"
+    else
+      echo "   wasi-sdk missing: wasm sale self-test skipped"
+    fi
   else
     echo "   node or wasm-bindgen missing: wasm parity check skipped"
   fi

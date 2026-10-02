@@ -320,6 +320,7 @@ dependencies = [
  "anyhow",
  "blake2b_simd",
  "carrier-core",
+ "carrier-sale",
  "group",
  "hex",
  "incrementalmerkletree",
@@ -363,11 +364,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "carrier-sale"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "carrier-core",
+ "getrandom 0.2.17",
+ "incrementalmerkletree",
+ "orchard",
+ "pczt",
+ "rand_core",
+ "zcash_primitives",
+ "zcash_protocol",
+]
+
+[[package]]
 name = "carrier-wasm"
 version = "0.1.0"
 dependencies = [
  "carrier-core",
+ "carrier-sale",
  "hex",
+ "rand_core",
  "serde_json",
  "wasm-bindgen",
 ]

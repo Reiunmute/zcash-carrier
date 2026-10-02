@@ -1,0 +1,20 @@
+[package]
+name = "carrier-sale"
+version = "0.1.0"
+edition = "2021"
+description = "Two-party carrier sale over PCZT as pure functions, for the CLI and the browser (wasm32)."
+
+[dependencies]
+carrier-core = { path = "../carrier-core" }
+orchard = { version = "0.15.5", default-features = false, features = ["std", "circuit"] }
+pczt = { version = "0.9.3", default-features = false, features = ["zcp-builder", "io-finalizer", "prover", "signer", "tx-extractor"] }
+zcash_primitives = { version = "0.30.1", default-features = false }
+zcash_protocol = "0.10.6"
+incrementalmerkletree = "0.8"
+rand_core = { version = "0.6", features = ["getrandom"] }
+anyhow = "1"
+
+# wasm32 needs a C compiler that targets wasm for secp256k1-sys (pulled in by zcash_primitives):
+# CC_wasm32_unknown_unknown=~/.local/wasi-sdk/bin/clang (wasi-sdk 34).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }

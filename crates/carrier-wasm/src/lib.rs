@@ -1,5 +1,5 @@
-//! Browser entry points over `carrier-core`. Pure functions only: chain access (grpc-web) and
-//! the PCZT sale path are added once the browser network (P6) and a wasm C toolchain are in place.
+//! Browser entry points over `carrier-core`, and with the `sale` feature over `carrier-sale`.
+//! Pure functions only: chain access (grpc-web) stays in JavaScript.
 use wasm_bindgen::prelude::*;
 
 fn err(e: impl std::fmt::Display) -> JsError {
@@ -35,4 +35,18 @@ pub fn vault_verify(fvk_hex: &str, msg: &[u8], sig: &[u8]) -> Result<bool, JsErr
     let fvk = carrier_core::fvk_from_hex(fvk_hex).map_err(err)?;
     let sig: [u8; 64] = sig.try_into().map_err(|_| err("signature must be 64 bytes"))?;
     Ok(carrier_core::keys::vault_verify(&fvk, msg, &sig).is_ok())
+}
+
+/// Runs the whole two-party sale on synthetic notes (build, prove, sign, redact, seller checks,
+/// sign, extract with proof verification). Returns the log and the txid.
+#[cfg(feature = "sale")]
+#[wasm_bindgen]
+pub fn sale_selftest() -> Result<String, JsError> {
+    let mut log = String::new();
+    let txid = carrier_sale::selftest(&mut rand_core::OsRng, &mut |l| {
+        log.push_str(&l);
+        log.push('\n');
+    })
+    .map_err(|e| err(format!("{e:#}")))?;
+    Ok(format!("{log}txid {txid}"))
 }
