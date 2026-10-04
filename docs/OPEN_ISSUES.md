@@ -49,6 +49,12 @@ Done 2026-10-02 (`src/lib.rs`, `src/verifier.rs`):
 - duplicate nullifiers in served data are refused
 - `LWD2=<url>` requires every compact block in the scanned range (txids and Ironwood actions) and every fetched transaction to be identical on a second server (strengthened after the Codex re-review: comparing block hashes alone could not detect a server hiding a spend)
 
+Done 2026-10-04, after a security review of the browser verifier (native and wasm alike):
+- every fetched transaction must appear in the indexed compact blocks at the height the server claims; a txid fixes the content but not that the tx was mined (`Chain::tx_checked`, `carrier-wasm` `JsChain::raw_tx`)
+- the browser verifier takes the highest tip any server reported and refuses if its indexed blocks stop short of it, so a server that hides recent blocks cannot make a sold carrier look held
+- with `LWD2`, tips that differ by more than 3 blocks are refused, so a lagging second server cannot shorten the scanned range
+- the browser verifier runs both servers' data through the same checks (`crates/carrier-wasm/browser_verify.mjs`, 3 negative cases)
+
 Still open:
 - No independent native-gRPC testnet lightwalletd was reachable on 2026-10-02 (ECC's endpoint timed out; ChainSafe serves grpc-web only). Run our own node as the second source.
 - None of the above validates proof of work. A light-client header check, or a full node we trust, is the real fix (marketplace SPEC section 6.2).

@@ -32,11 +32,11 @@ const COLLECTIONS = [
     label: "Masks",
     issuer: "c7fe2aeadb5a62001b99d7f71b1a8eb9526d6b457d7f31d919ffaa73a31c7321b75f9497b64feffbc74c74fc0e385a5c930ae9627f6ccfb0f3262de1be2417161ceedd79468d1687c12169898e65b3b7adc8ad144a1ff91ade335233c9cd4d24",
     genesis: "82562648ae6421901993cedbb72ffa7cf1ed4977ec33ccd1dbb8f91985fc1ea5",
-    genesisH: 4416690,
+    genesisH: 4416732,
     sealed: false,
     items: [
-      { num: 1, art: 0, hop: 3, listed: { price: 25000, expiry: 4436100 }, history: [["Issued", 4416690, "82562648ae64"], ["Transferred", 4416716, "45056894d3e1"], ["Sold", 4425653, "6bdeb823ff65"], ["Sold", 4435126, "281788d78f3e"]] },
-      { num: 2, art: 1, hop: 0, burned: true, listed: null, history: [["Issued", 4416701, "b193c439841d"], ["Burned: successor was not a carrier", 4416717, ""]] },
+      { num: 1, art: 0, hop: 3, listed: { price: 25000, expiry: 4436100 }, history: [["Issued", 4416732, "82562648ae64"], ["Transferred", 4416737, "45056894d3e1"], ["Sold", 4425592, "6bdeb823ff65"], ["Sold", 4435126, "281788d78f3e"]] },
+      { num: 2, art: 1, hop: 0, burned: true, listed: null, history: [["Issued", 4416735, "b193c439841d"], ["Burned: successor was not a carrier", 4416739, "3cfcf04ed370"]] },
     ],
   },
 ];

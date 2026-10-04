@@ -19,7 +19,8 @@ async function verifyFromChain({ collection, item, pkg = null, walk = null, hold
     if (++n % 2500 === 0) progress(`indexed ${n.toLocaleString('en-US')} of ${(tip - from + 1).toLocaleString('en-US')} blocks`);
   }
   progress('checking the rules');
-  const r = JSON.parse(await chain.verify(JSON.stringify(collection), item, pkg && JSON.stringify(pkg), walk, holder));
+  // One server for now; with our own node (P11) min_tip becomes the higher of the two tips.
+  const r = JSON.parse(await chain.verify(JSON.stringify(collection), item, pkg && JSON.stringify(pkg), walk, holder, tip));
   r.blocks = n;
   r.seconds = (performance.now() - t0) / 1000;
   return r;

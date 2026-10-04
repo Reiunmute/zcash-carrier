@@ -36,10 +36,31 @@ const cases = [
 let bad = 0;
 for (const [name, col, item, pkg, walk, holder, want] of cases) {
   const t = Date.now();
-  const r = JSON.parse(await chain.verify(col, item, pkg, walk, holder));
+  const r = JSON.parse(await chain.verify(col, item, pkg, walk, holder, tip));
   const ok = r.verdict === want;
   bad += !ok;
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${r.verdict}${r.hop !== undefined ? ` hop ${r.hop}` : ''}${r.error ? ` (${r.error})` : ''}, finalized=${r.finalized}, sealed=${r.sealed}, ${Date.now() - t} ms`);
   if (!ok) console.log(r.log.join('\n'));
 }
+
+// Lying or lagging servers must make verification fail, never pass.
+const sealed = json(`${E3}/collection_sealed.json`), holder17 = key(K3, 'buyer_acct7');
+const neg = async (name, ch, minTip, want) => {
+  const r = JSON.parse(await ch.verify(sealed, 1, null, P4_TX, holder17, minTip));
+  const ok = r.verdict === 'FAIL' && r.error.includes(want);
+  bad += !ok;
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${r.verdict}${r.error ? ` (${r.error})` : ''}`);
+};
+// 1. blocks stop before the tip another server reported (the P4 sale is in the hidden part)
+const short = new w.BrowserChain((txid) => lwd.getTransaction(BASE, txid));
+for await (const b of lwd.blockRange(BASE, 4435127, 4435600)) short.add_block(b);
+await neg('blocks end below the known tip', short, tip, 'below the highest known tip');
+// 2. a server that reports a tx at a different height than the block that holds it
+const liar = new w.BrowserChain(async (txid) => { const t = await lwd.getTransaction(BASE, txid); return txid === P4_TX ? { ...t, height: t.height + 1 } : t; });
+for await (const b of lwd.blockRange(BASE, 4435127, tip)) liar.add_block(b);
+await neg('tx height differs from its block', liar, tip, 'in the indexed blocks, not');
+// 3. a tx that is in no indexed block (here: the index starts after it)
+const late = new w.BrowserChain((txid) => lwd.getTransaction(BASE, txid));
+for await (const b of lwd.blockRange(BASE, 4435200, tip)) late.add_block(b);
+await neg('tx outside the indexed blocks', late, tip, 'not in the indexed blocks');
 process.exit(bad ? 1 : 0);

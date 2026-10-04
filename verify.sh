@@ -130,6 +130,10 @@ want "$out" "VERIFY FAIL: holder cannot open current carrier"
 run 2 env HOLDER_FVK="$BUYER2" $V "$E/collection.json" 4416690 "walk:1:$SALE2_TX"
 want "$out" "VERIFY FAIL: hop 3: no vault record"
 
+echo "== a scan that starts after the genesis is refused (txs must be in the indexed blocks)"
+run 2 env HOLDER_FVK="$BUYER2" $V "$E/collection.json" 4416740 "$E3/package_item1_hop3.json"   # genesis is at 4416732
+want "$out" "is not in the indexed blocks"
+
 echo "== FINAL hard seal (new collection, 2026-10-02)"
 run 0 env -u HOLDER_FVK $V "$E3/collection_sealed.json" "$SEAL_GENESIS_H"
 want "$out" "R1 issuance set: 2 item(s), finalized=true, sealed=true"

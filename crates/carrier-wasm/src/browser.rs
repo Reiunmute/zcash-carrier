@@ -15,6 +15,8 @@ use zcash_primitives::transaction::Transaction;
 struct JsChain {
     fetch_tx: Function,
     nf: HashMap<[u8; 32], NfHit>,
+    /// txid (display hex) -> height, for every tx in the indexed blocks
+    txs: HashMap<String, u64>,
     /// (first height, last height, last hash)
     range: Option<(u64, u64, Vec<u8>)>,
 }
@@ -32,6 +34,7 @@ impl JsChain {
             }
         }
         for tx in &b.vtx {
+            self.txs.insert(txid_hex(&tx.txid), b.height);
             for (i, a) in tx.ironwood.iter().enumerate() {
                 let hit = NfHit { txid: txid_hex(&tx.txid), height: b.height, action: i, cmx: a.cmx };
                 if self.nf.insert(a.nullifier, hit).is_some() {
@@ -57,7 +60,13 @@ impl JsChain {
         if tx.txid().to_string() != txid {
             bail!("the server returned tx {} for {txid}", tx.txid());
         }
-        Ok((tx, h as u64))
+        // A txid fixes the content, not whether it was mined: the tx must be in an indexed block,
+        // at the height the server claims.
+        match self.txs.get(txid) {
+            Some(&ih) if ih == h as u64 => Ok((tx, ih)),
+            Some(&ih) => bail!("{txid} is at height {ih} in the indexed blocks, not {h}"),
+            None => bail!("{txid} is not in the indexed blocks (not mined, or before the indexed range)"),
+        }
     }
 }
 
@@ -90,7 +99,7 @@ pub struct BrowserChain(Rc<RefCell<JsChain>>);
 impl BrowserChain {
     #[wasm_bindgen(constructor)]
     pub fn new(fetch_tx: Function) -> BrowserChain {
-        BrowserChain(Rc::new(RefCell::new(JsChain { fetch_tx, nf: HashMap::new(), range: None })))
+        BrowserChain(Rc::new(RefCell::new(JsChain { fetch_tx, nf: HashMap::new(), txs: HashMap::new(), range: None })))
     }
 
     /// Indexes one serialized `CompactBlock`. Blocks must arrive in height order.
@@ -104,15 +113,17 @@ impl BrowserChain {
     }
 
     /// R1 to R3 for `item` of the collection, from `package_json`, or from the vault records
-    /// starting at the holder's carrier in `walk_txid` (SPEC 4.2). Resolves to JSON
+    /// starting at the holder's carrier in `walk_txid` (SPEC 4.2). `min_tip` is the highest tip
+    /// any server reported; the indexed blocks must reach it, or a server that hides recent
+    /// blocks could make a sold carrier look held. Resolves to JSON
     /// `{verdict, hop?, finalized, sealed, items, range, log}`; verdict is HELD, SPENT, BURNED,
     /// UNVERIFIED or FAIL (with `error`).
-    pub fn verify(&self, collection_json: String, item: u32, package_json: Option<String>, walk_txid: Option<String>, holder_fvk: Option<String>) -> Promise {
+    pub fn verify(&self, collection_json: String, item: u32, package_json: Option<String>, walk_txid: Option<String>, holder_fvk: Option<String>, min_tip: f64) -> Promise {
         let ch = self.0.clone();
         future_to_promise(async move {
             let mut log = vec![];
             let mut ch = ch.borrow_mut();
-            let out = run(&mut ch, &collection_json, item, package_json, walk_txid, holder_fvk, &mut log).await;
+            let out = run(&mut ch, &collection_json, item, package_json, walk_txid, holder_fvk, min_tip, &mut log).await;
             let range = ch.range.as_ref().map(|r| vec![r.0, r.1]);
             let mut v = out.unwrap_or_else(|e| serde_json::json!({ "verdict": "FAIL", "error": format!("{e:#}") }));
             v["log"] = log.into();
@@ -122,9 +133,13 @@ impl BrowserChain {
     }
 }
 
-async fn run(ch: &mut JsChain, col: &str, item: u32, package: Option<String>, walk: Option<String>, holder: Option<String>, log: &mut Vec<String>) -> Result<serde_json::Value> {
+#[allow(clippy::too_many_arguments)]
+async fn run(ch: &mut JsChain, col: &str, item: u32, package: Option<String>, walk: Option<String>, holder: Option<String>, min_tip: f64, log: &mut Vec<String>) -> Result<serde_json::Value> {
     let col: Collection = serde_json::from_str(col)?;
     let (first, last) = ch.range.as_ref().map(|r| (r.0, r.1)).ok_or_else(|| anyhow!("no blocks indexed"))?;
+    if !(min_tip >= 1.0) || (last as f64) < min_tip {
+        bail!("indexed blocks end at {last}, below the highest known tip {min_tip}");
+    }
     // Liveness needs every block from the genesis on.
     let (_, gh) = ch.tx(&col.genesis_txid).await?;
     if first > gh {

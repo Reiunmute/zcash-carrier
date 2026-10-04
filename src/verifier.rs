@@ -12,11 +12,16 @@ use std::collections::{BTreeSet, HashMap};
 use zcash_primitives::transaction::Transaction;
 
 
+/// Largest tip difference between `LWD` and `LWD2` accepted (blocks).
+pub const MAX_TIP_SKEW: u64 = 3;
+
 pub struct Chain {
     pub c: Client,
     /// Second, independent server (`LWD2`). When set, all chain data is compared with it.
     c2: Option<(Client, String)>,
     nf_index: HashMap<[u8; 32], NfHit>,
+    /// txid (display hex) -> height, for every tx in the indexed blocks
+    tx_index: HashMap<String, u64>,
     pub from: u64,
     pub to: u64,
     /// Heights of every block whose data a verdict relied on.
@@ -43,8 +48,14 @@ impl Chain {
             Err(_) => None,
         };
         let mut to = tip(&mut c).await?;
-        if let Some((c2, _)) = c2.as_mut() {
-            to = to.min(tip(c2).await?);
+        if let Some((c2, url)) = c2.as_mut() {
+            // A lagging or lying second server must not shorten the range much: a spend in the
+            // blocks it leaves out would go unseen.
+            let t2 = tip(c2).await?;
+            if to.abs_diff(t2) > MAX_TIP_SKEW {
+                bail!("cross-check: tips differ by more than {MAX_TIP_SKEW} blocks ({} at {to}, {url} at {t2})", lwd_url());
+            }
+            to = to.min(t2);
         }
         let bs = blocks(&mut c, from, to).await?;
         if let Some((c2, url)) = c2.as_mut() {
@@ -55,9 +66,10 @@ impl Chain {
                 }
             }
         }
-        let mut nf_index = HashMap::new();
+        let (mut nf_index, mut tx_index) = (HashMap::new(), HashMap::new());
         for b in bs {
             for tx in &b.vtx {
+                tx_index.insert(txid_hex(&tx.txid), b.height);
                 for (i, a) in tx.ironwood_actions.iter().enumerate() {
                     let nf: [u8; 32] = a.nullifier.clone().try_into().map_err(|_| anyhow!("compact nullifier length"))?;
                     let cmx: [u8; 32] = a.cmx.clone().try_into().map_err(|_| anyhow!("compact cmx length"))?;
@@ -68,12 +80,18 @@ impl Chain {
                 }
             }
         }
-        Ok(Chain { c, c2, nf_index, from, to, used_heights: BTreeSet::from([to]), txs_compared: 0 })
+        Ok(Chain { c, c2, nf_index, tx_index, from, to, used_heights: BTreeSet::from([to]), txs_compared: 0 })
     }
 
     async fn tx_checked(&mut self, txid: &str) -> Result<(Transaction, u64)> {
         let (t, h) = get_tx(&mut self.c, txid).await?;
         let h = h.ok_or_else(|| anyhow!("{txid} unmined"))?;
+        // A txid fixes the content, not whether it was mined: the tx must be in an indexed block.
+        match self.tx_index.get(txid) {
+            Some(&ih) if ih == h => {}
+            Some(&ih) => bail!("{txid} is at height {ih} in the indexed blocks, not {h}"),
+            None => bail!("{txid} is not in the indexed blocks {}..={} (not mined, or before the range)", self.from, self.to),
+        }
         if let Some((c2, url)) = self.c2.as_mut() {
             let (t2, h2) = get_tx(c2, txid).await?;
             let (mut a, mut b) = (vec![], vec![]);
