@@ -20,6 +20,16 @@
         "127.0.0.1"
       ],
       "port": 8790
+    },
+    {
+      "name": "salebench",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "research/stage1-checks/provebench/coi_server.py",
+        "research/stage1-checks/salebench/pkg",
+        "8791"
+      ],
+      "port": 8791
     }
   ]
 }

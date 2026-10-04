@@ -1,0 +1,14 @@
+<!doctype html><html><body><pre id="o">running</pre>
+<script type="module">
+import init, { sale_selftest, initThreadPool } from './salebench.js';
+await init();
+const r = { isolated: crossOriginIsolated, cores: navigator.hardwareConcurrency };
+await initThreadPool(navigator.hardwareConcurrency);
+for (const run of [1, 2]) {
+  const t = performance.now();
+  const out = sale_selftest();
+  r[`run${run}_s`] = +((performance.now() - t) / 1000).toFixed(1);
+  r.txid = out.split('txid ')[1];
+}
+window.__r = r; document.getElementById('o').textContent = JSON.stringify(r);
+</script></body></html>

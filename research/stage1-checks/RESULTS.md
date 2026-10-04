@@ -165,10 +165,12 @@ Incident: a shell quoting mistake once sent `start = 0` (NaN encoded as 0) to Ch
 |---|---|
 | native, 1 thread (`cargo test --release -p carrier-sale`) | 6.9 s |
 | WASM, Node, 1 thread (`crates/carrier-wasm/sale_selftest.cjs`) | 32.4 s |
+| WASM, Chromium, 14 threads (`salebench/`, 2026-10-04) | 13.4 s first run, 9.5 s second |
 
 - The wasm module with the `sale` feature is 5.0 MB (`wasm-bindgen --target nodejs`, release, not optimised with `wasm-opt`).
 - It needs a C compiler that targets wasm, for `secp256k1-sys` (transparent support in `zcash_primitives`). wasi-sdk 34 (clang 23.1) works: `CC_wasm32_unknown_unknown=~/.local/wasi-sdk/bin/clang AR_wasm32_unknown_unknown=~/.local/wasi-sdk/bin/llvm-ar`.
-- Not measured yet: Chromium, and multithreaded proving for this path. Section 2 suggests about 4x faster with 14 threads.
+- The self-test does both sides: the buyer's proving key and proof, and the seller's extraction, which builds the verifying key and checks the proof. A real buyer pays only its own half; the proving key is built once per session.
+- `salebench/run.sh` builds with nightly Rust, `build-std`, `+atomics,+bulk-memory` and wasm-bindgen-rayon; the C objects of `secp256k1-sys` need `CFLAGS_wasm32_unknown_unknown="-matomics -mbulk-memory"` to link into shared memory, and the worker's `import('../../..')` must be patched to the module file when there is no bundler. Served cross-origin isolated (`provebench/coi_server.py`); `crossOriginIsolated` was true and 14 threads were used (Chromium in the Claude Code browser pane, Apple Silicon).
 
 ## P6 and P7, 2026-10-04: the verifier runs in the browser
 
