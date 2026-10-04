@@ -1,0 +1,88 @@
+# zypher testnet stack (marketplace SPEC P11 and 6.2): our own Zebra node and lightwalletd, served
+# to browsers over grpc-web and to the CLI over gRPC, plus the order book and the static site.
+# Published ports: 80 and 443 (Caddy, TLS) and 18233 (Zebra testnet P2P). Nothing else.
+# Images are pinned to the versions checked on 2026-10-03; testnet.zec.rocks runs Zebra 6.3.0
+# with lightwalletd v0.5.4. Runbook: deploy/README.md.
+name: zypher-testnet
+
+services:
+  zebra:
+    image: zfnd/zebra:6.4.2
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      - ZEBRA_NETWORK__NETWORK=Testnet
+      - ZEBRA_RPC__LISTEN_ADDR=0.0.0.0:18232
+      # RPC is reachable only inside this compose network (no published port).
+      - ZEBRA_RPC__ENABLE_COOKIE_AUTH=false
+    volumes:
+      - zebra-cache:/home/zebra/.cache/zebra
+    ports:
+      - "18233:18233"
+
+  lightwalletd:
+    image: electriccoinco/lightwalletd:v0.5.4
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on: [zebra]
+    configs:
+      - source: zcash_conf
+        target: /etc/lightwalletd/zcash.conf
+    volumes:
+      - lwd-cache:/var/lib/lightwalletd/db
+    # TLS ends at Caddy; lightwalletd is not published outside the compose network.
+    command: >
+      --no-tls-very-insecure
+      --grpc-bind-addr=0.0.0.0:9067
+      --zcash-conf-path=/etc/lightwalletd/zcash.conf
+      --data-dir=/var/lib/lightwalletd/db
+      --log-file=/dev/stdout
+
+  envoy:
+    # grpc-web for browsers, plain gRPC passes through (lightwalletd speaks gRPC only).
+    image: envoyproxy/envoy:v1.39.2
+    restart: unless-stopped
+    depends_on: [lightwalletd]
+    configs:
+      - source: envoy_yaml
+        target: /etc/envoy/envoy.yaml
+
+  orderbook:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.orderbook
+    restart: unless-stopped
+    depends_on: [lightwalletd]
+    environment:
+      - BIND=0.0.0.0:8787
+      - LWD=http://lightwalletd:9067
+      - ALLOW_ORIGIN=https://${DOMAIN:?set DOMAIN in deploy/.env}
+
+  caddy:
+    image: caddy:2.11.6
+    restart: unless-stopped
+    depends_on: [envoy, orderbook]
+    environment:
+      - DOMAIN=${DOMAIN:?set DOMAIN in deploy/.env}
+      - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../web/prototype:/srv/site:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+configs:
+  zcash_conf:
+    file: ./zcash.conf
+  envoy_yaml:
+    file: ./envoy.yaml
+
+volumes:
+  zebra-cache:
+  lwd-cache:
+  caddy-data:
+  caddy-config:

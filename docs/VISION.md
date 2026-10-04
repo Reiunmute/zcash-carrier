@@ -2,7 +2,7 @@
 
 [한국어](VISION.ko.md)
 
-Written 2026-10-01. "Carrier" is a working name.
+Written 2026-10-01. The product is called "zypher" for now (2026-10-03); this document still says "Carrier" for it.
 
 ## The vision in one sentence
 
@@ -66,7 +66,7 @@ The competing project's own whitepaper lists this kind of one-step sale as its b
 
 ## Still undecided
 
-- The product name.
+- The final product name (zypher is tentative).
 - When, and whether, to move to the real network.
 - How the marketplace earns money. One option is a small fee paid inside the same sale transaction, so we still never hold funds. This has not been built or tested.
 - The visual design.

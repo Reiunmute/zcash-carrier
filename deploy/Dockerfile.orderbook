@@ -1,0 +1,12 @@
+# The order book (crates/orderbook), built from this repo. The build context is the repo root;
+# .dockerignore keeps state/ (keys), target/ and the evidence out of it.
+FROM rust:1.94.0-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN cargo build --release -p orderbook
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/target/release/orderbook /usr/local/bin/orderbook
+USER nobody
+CMD ["orderbook"]

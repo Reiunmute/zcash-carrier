@@ -40,11 +40,11 @@ pub async fn connect() -> Result<Client> {
 }
 
 pub async fn connect_url(url: &str) -> Result<Client> {
-    let ch = tonic::transport::Channel::from_shared(url.to_string())?
-        .tls_config(tonic::transport::ClientTlsConfig::new().with_webpki_roots())?
-        .connect()
-        .await
-        .context("lightwalletd connect")?;
+    let ep = tonic::transport::Channel::from_shared(url.to_string())?;
+    // TLS for https:// URLs; plain http:// only for a lightwalletd on a private network
+    // (deploy/: the order book talks to its own node inside the compose network).
+    let ep = if url.starts_with("https://") { ep.tls_config(tonic::transport::ClientTlsConfig::new().with_webpki_roots())? } else { ep };
+    let ch = ep.connect().await.context("lightwalletd connect")?;
     Ok(CompactTxStreamerClient::new(ch).max_decoding_message_size(64 << 20))
 }
 

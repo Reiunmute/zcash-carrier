@@ -42,7 +42,7 @@ Not taken: OpenSea's dark default, its blue accent, its fonts (GT America), shop
 
 Contrast: Paper text only on Deep; Ink on Mid and Light.
 
-The marketplace shows "carrier" (working name) as plain Departure Mono text until it has its own mark.
+The marketplace shows "zypher" (tentative name, 2026-10-03) as plain Departure Mono text until it has its own mark.
 
 ## 3. Decisions in this draft
 
@@ -50,4 +50,4 @@ The marketplace shows "carrier" (working name) as plain Departure Mono text unti
 - **Pixel art is drawn from the memo bytes** in the browser (26 by 26, `image-rendering: pixelated`), never from an uploaded image.
 - **Verification badges carry the rule name** (R1, R2, R3) and a plain label, so "verified" never means "the server says so".
 - **Testnet is visible everywhere**: a network badge in the top bar and "TAZ, no value" next to prices.
-- Open questions for Ryot: the product name and mark; Korean UI at launch or later.
+- Open questions for Ryot: the final name and mark (zypher is tentative); Korean UI at launch or later.

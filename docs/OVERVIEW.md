@@ -2,7 +2,7 @@
 
 [한국어](OVERVIEW.ko.md)
 
-Written 2026-09-30. Status: research proof of concept on **Zcash testnet only**. Not audited. The working name is "Carrier". The product name is not decided.
+Written 2026-09-30. Status: research proof of concept on **Zcash testnet only**. Not audited. The product is called "zypher" for now (2026-10-03); "Carrier" is the protocol.
 
 ## 1. In one paragraph
 

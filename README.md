@@ -3,7 +3,7 @@
 Collectibles bound to shielded notes on Zcash. This repo contains a working testnet proof of concept and the plan for a public marketplace.
 
 > Status: research PoC. Testnet only. Not audited. Do not use real funds.
-> Working name: **Carrier**. The product name is still open. These are not ERC-721 tokens, so the docs avoid calling them NFTs.
+> Product name (tentative, 2026-10-03): **zypher**. "Carrier" is the name of the protocol: carrier notes, the `carrier` CLI and the crates. These are not ERC-721 tokens, so the docs avoid calling them NFTs.
 
 **Why this exists, in plain words:** [`docs/VISION.md`](docs/VISION.md) ([한국어](docs/VISION.ko.md)).
 

@@ -13,7 +13,7 @@ pub const MAX_MSGS_PER_TRANSCRIPT: usize = 16;
 pub const MAX_BODY: usize = channel::MAX_PLAINTEXT + 48;
 /// Longest listing life, in blocks past the tip (about 9 days on testnet).
 pub const MAX_LISTING_TTL: u64 = 10_000;
-pub const POW_BITS: u32 = 16;
+pub use channel::POW_BITS;
 const MAX_MONEY: u64 = 21_000_000 * 100_000_000;
 
 /// Public listing (SPEC 3.1). Byte fields are hex.
@@ -237,6 +237,19 @@ mod tests {
         (NewListing { listing: l, delete_token_hash: hex::encode(delete_hash(b"secret")) }, id)
     }
 
+    fn transcript_of(l: &Listing, i: &Intent) -> [u8; 32] {
+        channel::transcript(&channel::Terms {
+            listing_id: h32(&l.listing_id, "").unwrap(),
+            coll: h32(&l.coll, "").unwrap(),
+            num: l.num,
+            price: l.price,
+            expiry_height: l.expiry_height,
+            seller_key: h32(&l.seller_channel_key, "").unwrap(),
+            buyer_key: h32(&i.buyer_channel_key, "").unwrap(),
+            nonce: h32(&i.nonce, "").unwrap(),
+        })
+    }
+
     fn intent(l: &Listing, nonce: u8) -> Intent {
         let (key, nonce) = ([4u8; 32], [nonce; 32]);
         let t = channel::transcript(&channel::Terms {
@@ -274,8 +287,13 @@ mod tests {
         b.add_listing(n, TIP).unwrap();
         let id = hex::encode(id);
         let mut weak = intent(&l, 1);
-        weak.pow = 0; // deterministic inputs; stamp 0 does not reach 16 bits for them
+        weak.pow = 0; // deterministic inputs; stamp 0 does not reach POW_BITS for them
         assert_eq!(b.add_intent(&id, weak, TIP).unwrap_err().0, 400);
+        // A stamp good enough for 16 bits but not for POW_BITS (20) is refused.
+        let mut low = intent(&l, 5);
+        let tl = transcript_of(&l, &low);
+        low.pow = (0u64..).find(|&st| channel::pow_ok(&tl, 16, st) && !channel::pow_ok(&tl, POW_BITS, st)).unwrap();
+        assert_eq!(b.add_intent(&id, low, TIP).unwrap_err().0, 400);
         let t = b.add_intent(&id, intent(&l, 2), TIP).unwrap();
         assert_eq!(b.add_intent(&id, intent(&l, 2), TIP).unwrap_err().0, 409); // replayed nonce
         assert_eq!(b.add_intent(&id, intent(&l, 3), TIP + 100).unwrap_err().0, 410); // listing expired

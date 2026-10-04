@@ -25,6 +25,8 @@ pub const TYPE_PCZT: u8 = 3;
 pub const BUYER_TO_SELLER: u8 = 0;
 pub const SELLER_TO_BUYER: u8 = 1;
 /// Lease length (X6): 30 minutes, renewable.
+/// Intent proof of work, in leading zero bits (SPEC 3.2; 20 since 2026-10-03, about 0.14 s median in wasm).
+pub const POW_BITS: u32 = 20;
 pub const LEASE_SECS: u64 = 30 * 60;
 /// Largest plaintext accepted (a PCZT is about 15 kB; the cap matches the CLI's PCZT cap).
 pub const MAX_PLAINTEXT: usize = 1 << 20;

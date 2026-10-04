@@ -30,13 +30,7 @@ zkSNARKs (the Zcash collection traded on Zilkroad) keeps ownership in the operat
 
 The end product is an OpenSea-style public website where people connect a wallet, see their items, and buy and sell them.
 
-Naming: these are not NFTs in the ERC-721 sense. The working name is **Carrier**. Candidates:
-- Heirloom (Rei's pick: the product is the lineage)
-- Relic
-- Noteprint
-- Veil
-
-Ryot has not decided. Do not rename anything until he does. (Vizor came up in the discussion as a wallet, by Chainapsis. It is an existing product name, not a naming candidate.)
+Naming: these are not NFTs in the ERC-721 sense. The product (the website and marketplace) is called **zypher** for now (Ryot, 2026-10-03, tentative). "Carrier" stays the name of the protocol and its parts: carrier notes, the `carrier` CLI, the crates. Do not rename code. Docs written before 2026-10-03 use "Carrier" for both. (Earlier candidates: Heirloom, Relic, Noteprint, Veil. Vizor is an existing wallet by Chainapsis, not a candidate.)
 
 ## 2. Status matrix
 
@@ -57,6 +51,7 @@ Ryot has not decided. Do not rename anything until he does. (Vizor came up in th
 | Disclosure channel (P10) | primitives in `carrier-core::channel` (SPEC 3.2): transcript, AAD, HPKE, vault-signed disclosure, PoW, replay set, lease. Unit tests (incl. a relay key swap) and wasm parity pass. The CLI sale runs over it: `sale-list` (public listing only), `sale-intent`, `sale-disclose`, `sale-buy`, `sale-accept`; DRY-tested with lease, replay, tamper and relay cases. No order book server yet | `crates/carrier-core/src/channel.rs`, `crates/carrier-wasm/parity.cjs` |
 | Order book (SPEC 2, 3.2) | `crates/orderbook` (axum, in memory): public listings, intents with PoW and replay checks, opaque messages per transcript, delete token, expiry pruning. Unit tests; DRY sale end to end through it (`scripts/orderbook_e2e.sh`) | `evidence/testnet-2026-10-02/orderbook_e2e_dry.log` |
 | Anchor age (P5) | measured: testnet anchors cluster at 3 to 6 and 10 to 15 blocks; `sale-buy` anchors 2 to 11 below the tip | `research/p5-anchor-ages-2026-10-02.md` |
+| Own node (P11) | Hetzner VPS chosen by Ryot 2026-10-03; `deploy/` stack and runbook ready (Zebra 6.4.2, lightwalletd v0.5.4, Envoy, Caddy, order book). Ryot creates the server and DNS; then `LWD2=https://lwd.DOMAIN:443 bash verify.sh` is the exit check | `deploy/README.md` |
 | Browser network (P6) | grpc-web streaming with Ironwood actions verified on ChainSafe, relay streams | `research/stage1-checks/RESULTS.md` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
 | Marketplace SPEC | draft 4 (draft 3 + X1 to X8), **approved by Ryot 2026-10-02**, default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |

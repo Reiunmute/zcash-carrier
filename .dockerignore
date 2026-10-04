@@ -1,0 +1,12 @@
+# Never send keys or local working state into an image build.
+state
+**/seed.hex
+*.seed
+target
+out
+.git
+.claude
+.local
+evidence
+research
+art

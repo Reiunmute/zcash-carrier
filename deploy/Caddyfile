@@ -1,0 +1,32 @@
+# TLS certificates come from Let's Encrypt automatically. Three names on one server:
+#   {$DOMAIN}       the site (static, cross-origin isolated for multithreaded wasm proving)
+#   api.{$DOMAIN}   the order book
+#   lwd.{$DOMAIN}   lightwalletd: grpc-web for browsers, gRPC for the CLI (LWD2)
+# ponytail: no per-IP rate limit here (stock Caddy has none); Envoy has a global token bucket.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	root * /srv/site
+	file_server
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Cross-Origin-Opener-Policy same-origin
+		Cross-Origin-Embedder-Policy require-corp
+	}
+}
+
+api.{$DOMAIN} {
+	reverse_proxy orderbook:8787
+}
+
+lwd.{$DOMAIN} {
+	reverse_proxy h2c://envoy:8080 {
+		# stream GetBlockRange responses as they arrive
+		flush_interval -1
+	}
+}

@@ -6,3 +6,4 @@
 *.seed
 seed.hex
 .DS_Store
+/deploy/.env

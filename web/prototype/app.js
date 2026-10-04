@@ -1,4 +1,4 @@
-// Carrier marketplace prototype: static mock data, no network, no keys. Layout after OpenSea,
+// zypher marketplace prototype: static mock data, no network, no keys. Layout after OpenSea,
 // brand tokens (docs/marketplace/DESIGN.md). Routes follow SPEC section 7.
 // Pages are built as HTML strings from the constant mock data below (labels go through esc).
 // The real app renders chain and order-book data, which is untrusted: build DOM nodes there.

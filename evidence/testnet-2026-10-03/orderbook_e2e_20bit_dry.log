@@ -1,0 +1,21 @@
+== seller lists; posts the public listing with a delete token hash
+LISTED item #1 hop 1 price 10000 zats expiry 4456072, listing 886da855882b.. in <WORK>/seller/listing.json
+listed 886da855882b8ce01e4ac7f2566d6eeece15a47197e07339bf0bbdf917298b4d
+== buyer reads the listing from the order book and posts an intent
+INTENT for listing 886da855882b.., transcript 4d785537cf9e.., pow stamp 296344
+server transcript 4d785537cf9e..
+== seller reads the intent, grants the lease, posts the disclosure
+intent transcript 4d785537cf9e..
+DISCLOSED to transcript 4d785537cf9e.. (lease until 1791090338), 292 bytes, records only
+== buyer fetches the disclosure, verifies, builds, posts the encrypted PCZT
+  disclosure opened, vault signature verified for our transcript 4d785537cf9e..
+record walk: hop 1 <- 7eab6bd6bee4..:0 (issuance)
+  verified from chain: item #1 hop 1, carrier 1fcb838f70d9.. held by the disclosed vault key, unspent
+  anchor at height 4455066 (tip 4455072, depth 6)
+SALE-BUY wrote <WORK>/buyer/sale.pczt (14932 bytes PCZT, 14980 encrypted), carrier action 2, pays 10000 zats
+== seller fetches the PCZT and accepts (DRY)
+  extracted tx 3cc42b7d419a426a8e02c913ef24601d62e58b752c1c1242692193ae3e43f4a3: 3 actions, 12322 bytes, successor cmx d6b6e42171db..
+SALE-ACCEPT DRY 3cc42b7d419a426a8e02c913ef24601d62e58b752c1c1242692193ae3e43f4a3 (not broadcast, bytes in sale_dry_tx.bin)
+== seller removes the listing (no public sold event)
+HTTP 404 GET /listings/886da855882b8ce01e4ac7f2566d6eeece15a47197e07339bf0bbdf917298b4d: {"error":"no such listing"}
+ORDERBOOK E2E OK

@@ -640,7 +640,7 @@ async fn sale_list(c: Client) -> Result<()> {
 }
 
 /// Buyer: an intent for the listing in SALE_DIR, with a fresh channel key, a single-use nonce and
-/// a proof-of-work stamp (POW_BITS, default 16).
+/// a proof-of-work stamp (POW_BITS, default `channel::POW_BITS`).
 fn sale_intent() -> Result<()> {
     let l: PublicListing = read_json(&listing_path())?;
     checked_listing(&l)?;
@@ -649,7 +649,7 @@ fn sale_intent() -> Result<()> {
     OsRng.fill_bytes(&mut nonce);
     let (key, nonce) = (hex::encode(cpk), hex::encode(nonce));
     let t = transcript_for(&l, &key, &nonce)?;
-    let pow = channel::pow_find(&t, env_u32("POW_BITS", 16)?);
+    let pow = channel::pow_find(&t, env_u32("POW_BITS", channel::POW_BITS)?);
     let intent = Intent { listing_id: l.listing_id.clone(), buyer_channel_key: key, nonce, pow };
     fs::write(sale_dir().join("intent.json"), serde_json::to_string_pretty(&intent)?)?;
     fs::create_dir_all(dir())?;
@@ -672,7 +672,7 @@ async fn sale_disclose(mut c: Client) -> Result<()> {
         bail!("REFUSED: the intent is for another listing");
     }
     let t = transcript_for(&sl.public, &i.buyer_channel_key, &i.nonce)?;
-    if !channel::pow_ok(&t, env_u32("POW_BITS", 16)?, i.pow) {
+    if !channel::pow_ok(&t, env_u32("POW_BITS", channel::POW_BITS)?, i.pow) {
         bail!("REFUSED: proof of work too weak");
     }
     let (id, exp, tip_h) = (arr32(&sl.public.listing_id)?, sl.public.expiry_height, tip(&mut c).await?);
