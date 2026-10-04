@@ -55,4 +55,5 @@ Order book: `curl https://api.DOMAIN/tip`.
 - Rate limiting: Envoy has one global token bucket (100 requests a second, burst 200); Caddy and the order book have none per client. Add per-IP limits before heavy public use.
 - The order book is in memory; listings are re-posted by sellers after a restart.
 - Zebra RPC runs without cookie auth; it is not published outside the compose network.
-- Not yet tested end to end: the configs were syntax-checked with `docker compose config` only. `envoy --mode validate`, `caddy validate` and the order book image build need the images pulled.
+- Checked locally on 2026-10-04 (colima, arm64): `docker compose config` passes; `envoy --mode validate` and `caddy validate` pass; the Envoy filter chain, with its upstream pointed at `testnet.zec.rocks` for the test, answers the CORS preflight and streams `GetBlockRange` over grpc-web (5 blocks, Ironwood actions, `grpc-status:0`), and returns 404 for other services; the order book image builds (159 MB), runs as `nobody`, and its build context holds no `state/` and no seed files.
+- Not tested: Zebra and lightwalletd themselves (they need the synced node), and the amd64 build on the server.

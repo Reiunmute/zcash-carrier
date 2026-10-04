@@ -34,3 +34,6 @@ pczt = { version = "0.9.3", features = ["zcp-builder", "io-finalizer", "prover",
 
 [profile.release]
 opt-level = 3
+
+[dev-dependencies]
+prost = "0.14"

@@ -169,3 +169,18 @@ Incident: a shell quoting mistake once sent `start = 0` (NaN encoded as 0) to Ch
 - The wasm module with the `sale` feature is 5.0 MB (`wasm-bindgen --target nodejs`, release, not optimised with `wasm-opt`).
 - It needs a C compiler that targets wasm, for `secp256k1-sys` (transparent support in `zcash_primitives`). wasi-sdk 34 (clang 23.1) works: `CC_wasm32_unknown_unknown=~/.local/wasi-sdk/bin/clang AR_wasm32_unknown_unknown=~/.local/wasi-sdk/bin/llvm-ar`.
 - Not measured yet: Chromium, and multithreaded proving for this path. Section 2 suggests about 4x faster with 14 threads.
+
+## P6 and P7, 2026-10-04: the verifier runs in the browser
+
+`carrier-wasm` (`sale` feature) exports `BrowserChain`: JavaScript feeds it compact blocks from `GetBlockRange` over grpc-web and a `fetch_tx` callback for `GetTransaction` (`web/prototype/lib/lwd.mjs`, no dependencies). The wasm side parses the blocks (`carrier-core::compact`, checked against the prost types in `tests/compact_parse.rs`), requires contiguous, hash-linked heights and unique nullifiers, parses every tx and checks its txid, and runs the same rules R1 to R3 and the record walk as the CLI.
+
+`crates/carrier-wasm/browser_verify.mjs` runs the seven verdict cases of `verify.sh` (HELD, SPENT, BURNED, FAIL, UNVERIFIED, and the P4 record walk) in wasm; all seven agree with the native verifier, against two servers:
+
+| Server | Blocks indexed | Index time | Per verdict |
+|---|---|---|---|
+| `zcash-testnet.chainsafe.dev` (grpc-web) | 38,471 (4416690 to 4455160) | 3.3 s | 0.3 to 0.8 s |
+| our `deploy/envoy.yaml` chain, upstream `testnet.zec.rocks` | 38,493 | 2.8 s | 0.3 to 0.8 s |
+
+Node 24, one thread. `verify.sh` runs the first row.
+
+In Chromium (the prototype's "Check on chain", `web/prototype/verify.mjs`): the P4 item rebuilt from its vault record and HELD by vault 17, 20,283 blocks in 2.8 s; R1 of the 2026-09-29 collection, 38,720 blocks in 5.4 s. Both from ChainSafe, one server only.

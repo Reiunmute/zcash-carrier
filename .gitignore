@@ -7,3 +7,4 @@
 seed.hex
 .DS_Store
 /deploy/.env
+/web/prototype/pkg

@@ -132,6 +132,7 @@ canvas.art { width: 100%; aspect-ratio: 1; image-rendering: pixelated; display: 
 .timeline li { display: grid; grid-template-columns: 24px 1fr; gap: 12px; padding: 10px 0; }
 .timeline li::before { content: ""; width: 12px; height: 12px; margin-top: 7px; background: var(--deep); }
 .notice { background: var(--light); border-radius: var(--r); padding: 14px 16px; margin: 16px 0; font-size: 14px; line-height: 1.6; }
+.check { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
 .locked { border: 1px dashed var(--ink); border-radius: var(--r); padding: 16px; color: var(--mute); }
 
 /* ---------- account ---------- */

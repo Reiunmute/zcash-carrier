@@ -14,18 +14,23 @@ const COLLECTIONS = [
   {
     coll: "5fc17ef389fdae9b23142e4218153b17e74ae859d344667351a32e03d74e881f",
     label: "Masks, sealed",
+    issuer: "5fc17ef389fdae9b23142e4218153b17e74ae859d344667351a32e03d74e881f1219c96e7c7f82da78930fc44648d3f9d264df28300f26a2d6816e075deb993e0961fb6f6c0dbcc71713aafd7fcf9ec04a809dd8c797d0501c9fca64ff16253c",
     genesis: "7eab6bd6bee43d321e800d7a4565dc26d8ce9af29c2045f7fc15f9f8716aac49",
     genesisH: 4435127,
     finalTx: "512832b969c897752116be1649d5a982ad2a82e34199bc1d1e9f11bfef9b68f3",
     sealed: true,
     items: [
-      { num: 1, art: 0, hop: 1, listed: { price: 10000, expiry: 4436636 }, history: [["Issued", 4435127, "7eab6bd6bee4"], ["Sold to a fresh vault", 4435628, "e96845ecfc84"]] },
+      // chain: the real P4 sale and the buyer vault's public test view key (evidence/testnet-2026-10-02),
+      // standing in for what the disclosure would hand a buyer.
+      { num: 1, art: 0, hop: 1, listed: { price: 10000, expiry: 4436636 }, history: [["Issued", 4435127, "7eab6bd6bee4"], ["Sold to a fresh vault", 4435628, "e96845ecfc84"]],
+        chain: { walk: "e96845ecfc84008674195d8ee77fd433cdb7cdfc3464711ae92221d58ada3b1d", holder: "11f91055ff81757be737270894d94cc69df4b39e28d3d3d382aafc834bef4e1c6a4d53b6e2bcfb5f1b0a10e7926d20be4ec2f9e8051507eda25cc0ae84f2963ef422c50cf400d6d1d4e338bd94ed7d780b3d14425cf90970399830b8731d4e13" } },
       { num: 2, art: 1, hop: 0, listed: null, history: [["Issued", 4435129, "512832b969c8"]] },
     ],
   },
   {
     coll: "c7fe2aeadb5a62001b99d7f71b1a8eb9526d6b457d7f31d919ffaa73a31c7321",
     label: "Masks",
+    issuer: "c7fe2aeadb5a62001b99d7f71b1a8eb9526d6b457d7f31d919ffaa73a31c7321b75f9497b64feffbc74c74fc0e385a5c930ae9627f6ccfb0f3262de1be2417161ceedd79468d1687c12169898e65b3b7adc8ad144a1ff91ade335233c9cd4d24",
     genesis: "82562648ae6421901993cedbb72ffa7cf1ed4977ec33ccd1dbb8f91985fc1ea5",
     genesisH: 4416690,
     sealed: false,
@@ -187,7 +192,7 @@ function item(c, it) {
         <div><dt><span class="badge ok">R1</span></dt><dd>Issued in ${short(c.genesis, 12)} at block ${c.genesisH}; the sequence is ${c.sealed ? "sealed" : "final"}.</dd></div>
         <div><dt><span class="badge ok">R2</span></dt><dd>${it.hop} transfer${it.hop === 1 ? "" : "s"}; every successor was made in the same Action as the spend, with a valid carrier memo.</dd></div>
         <div><dt><span class="badge ok">R3</span></dt><dd>The ${holder ? "your" : "disclosed"} vault opens the current carrier and it is unspent.</dd></div>
-        <div><dt class="meta">Trust</dt><dd>Chain data from two lightwalletd servers, identical in every block used. No proof-of-work check yet.</dd></div>
+        <div><dt class="meta">Trust</dt><dd>The live check reads one lightwalletd (zcash-testnet.chainsafe.dev). Comparing it with our own node comes with P11. No proof-of-work check yet.</dd></div>
       </dl>
       <p class="meta" style="margin-top:16px">History</p>
       <ol class="timeline">${it.history.map(([what, h, tx]) => `<li><span>${esc(what)} <span class="mute">· block ${h}${tx ? ` · tx ${tx}…` : ""}</span></span></li>`).join("")}</ol>`
@@ -204,7 +209,10 @@ function item(c, it) {
       <span class="mute">Holder: private (shielded)</span>
       <div class="chips"><span class="chip">Ironwood</span><span class="chip">Testnet</span><span class="chip">Item ${it.num} of ${c.items.length}</span><span class="chip">Hop ${it.hop}</span></div>
       <section class="panel" aria-label="Price">${action}</section>
-      <section class="panel"><header><span>Provenance</span><span class="meta">${disclosed || holder ? "verified in this browser" : "R1 public, R2 and R3 after disclosure"}</span></header><div class="in">${r2r3}</div></section>
+      <section class="panel"><header><span>Provenance</span><span class="meta">${disclosed || holder ? "R2 and R3 with the disclosed key" : "R1 public, R2 and R3 after disclosure"}</span></header><div class="in">
+        <div class="check"><button class="btn" data-check>Check on chain</button><span class="meta" id="chk-status">${(disclosed || holder) && !it.chain ? "this demo item has no disclosed key; only R1 is checked" : "runs the verifier in this browser"}</span></div>
+        <div id="chk"></div>
+        ${r2r3}</div></section>
       <section class="panel"><header><span>Details</span></header><div class="in"><dl class="rows">
         <div><dt>Collection id</dt><dd>${c.coll}</dd></div>
         <div><dt>Item</dt><dd>#${it.num}</dd></div>
@@ -295,6 +303,56 @@ function runBuy(btn) {
   tick();
 }
 
+// ---------- real verification (verify.mjs, wasm) ----------
+// The result comes from chain data, so it is rendered with textContent only.
+async function checkOnChain(btn) {
+  const [, , a, b] = location.hash.split("/");
+  const c = findColl(a), it = c && c.items.find((x) => x.num === +b);
+  if (!it) return;
+  if (!window.zypherVerify) await new Promise((r) => window.addEventListener("zypher-verify-ready", r, { once: true }));
+  const status = $("#chk-status"), out = $("#chk");
+  const withKey = state.view !== "visitor" && it.chain;
+  btn.disabled = true;
+  out.replaceChildren();
+  try {
+    const r = await window.zypherVerify({
+      collection: { network: "test", coll: c.coll, issuer_fvk: c.issuer, genesis_txid: c.genesis },
+      item: it.num,
+      pkg: withKey ? null : { item: it.num, label: "issuance only", hops: [] },
+      walk: withKey ? it.chain.walk : null,
+      holder: withKey ? it.chain.holder : null,
+      from: c.genesisH,
+    }, (msg) => { status.textContent = msg; });
+    const line = (badge, cls, text) => {
+      const d = document.createElement("div");
+      const s = document.createElement("span");
+      s.className = `badge ${cls}`; s.textContent = badge;
+      d.append(s, " ", text);
+      d.style.margin = "6px 0";
+      return d;
+    };
+    const r1 = r.finalized !== undefined;
+    out.append(line("R1", r1 ? "ok" : "bad", r1 ? `${r.items} items issued, ${r.sealed ? "sealed" : r.finalized ? "final" : "open"} (from chain)` : `failed: ${r.error}`));
+    if (withKey) {
+      const held = r.verdict === "HELD";
+      out.append(line("R2 R3", held ? "ok" : "bad", held ? `held by the disclosed vault, hop ${r.hop}, carrier unspent` : `${r.verdict}${r.error ? ": " + r.error : ""}`));
+    }
+    const det = document.createElement("details");
+    const sum = document.createElement("summary");
+    sum.textContent = "Verifier log";
+    const pre = document.createElement("pre");
+    pre.textContent = (r.log || []).join("\n");
+    pre.style.cssText = "white-space:pre-wrap;font-size:12px;line-height:1.5";
+    det.append(sum, pre);
+    out.append(det);
+    status.textContent = `checked in this browser: ${r.blocks.toLocaleString("en-US")} blocks to ${r.tip_checked ?? "tip"}, ${r.seconds.toFixed(1)} s, chain data from zcash-testnet.chainsafe.dev`;
+  } catch (e) {
+    status.textContent = `check failed: ${e.message || e}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ---------- router ----------
 let ui = { tab: "items", listedOnly: false, sort: "price-asc", atab: "collected" };
 function render() {
@@ -322,6 +380,7 @@ document.addEventListener("click", (e) => {
   if (t.hasAttribute("data-close")) return closeModal();
   if (t.dataset.do === "connect") { state.connected = true; $("#connect").textContent = "utest1…k3f9"; $("#connect").classList.remove("primary"); return closeModal(); }
   if (t.dataset.do === "buy") return runBuy(t);
+  if (t.hasAttribute("data-check")) return checkOnChain(t);
   if (t.dataset.tab) { ui.tab = t.dataset.tab; return render(); }
   if (t.dataset.atab) { ui.atab = t.dataset.atab; return render(); }
   if (t.dataset.view) { state.view = t.dataset.view; return render(); }

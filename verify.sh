@@ -59,6 +59,9 @@ if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown
       "$HOME/.cargo/bin/wasm-bindgen" --target nodejs --out-dir out/wasmsale target/wasm32-unknown-unknown/release/carrier_wasm.wasm || fail "wasm-bindgen (sale)"
       node crates/carrier-wasm/sale_selftest.cjs out/wasmsale > out/wasm_sale_selftest.log || fail "wasm sale selftest"
       echo "   sale self-test in wasm: $(tail -1 out/wasm_sale_selftest.log)"
+      # The browser verifier (wasm) over grpc-web must reach the same verdicts as this script.
+      node crates/carrier-wasm/browser_verify.mjs out/wasmsale "${GRPC_WEB:-https://zcash-testnet.chainsafe.dev}" > out/wasm_browser_verify.log || { cat out/wasm_browser_verify.log; fail "browser verifier (wasm, grpc-web) disagrees"; }
+      echo "   browser verifier (wasm over grpc-web): $(grep -c '^ok' out/wasm_browser_verify.log) cases agree"
     else
       echo "   wasi-sdk missing: wasm sale self-test skipped"
     fi

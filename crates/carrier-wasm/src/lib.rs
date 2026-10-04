@@ -2,6 +2,9 @@
 //! Pure functions only: chain access (grpc-web) stays in JavaScript.
 use wasm_bindgen::prelude::*;
 
+#[cfg(feature = "sale")]
+mod browser;
+
 fn err(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }

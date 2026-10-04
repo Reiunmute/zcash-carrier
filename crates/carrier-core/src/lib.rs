@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 pub type IwBundle = orchard::Bundle<orchard::bundle::Authorized, zcash_protocol::value::ZatBalance>;
 
 pub mod channel;
+pub mod compact;
 pub mod keys;
 pub mod verify;
 
