@@ -12,6 +12,7 @@
   <input class="search" type="search" placeholder="Search collections and items" aria-label="Search">
   <nav class="nav"><a href="#/" data-nav="explore">Explore</a><a href="#/account" data-nav="account">Account</a></nav>
   <span class="spacer"></span>
+  <span class="meta" id="who"></span>
   <span class="net meta" title="Zcash testnet, Ironwood pool">Testnet</span>
   <button class="btn primary" id="connect">Connect</button>
 </div></header>
@@ -21,7 +22,7 @@
   <span>Prototype, 2026-10-02</span>
 </div></footer>
 <div class="scrim" id="scrim" role="dialog" aria-modal="true"><div class="modal" id="modal"></div></div>
-<div class="proto" id="proto" hidden></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 <script src="app.js"></script>
 <script type="module" src="verify.mjs"></script>
 </body>

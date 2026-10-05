@@ -1,6 +1,6 @@
 # Marketplace design direction (draft 1, 2026-10-02)
 
-Ryot's direction (D6), 2026-10-02: follow OpenSea's structure closely; with our own colors and type. This draft maps the two onto the pages of SPEC section 7. A static prototype lives in `web/prototype/`.
+Ryot's direction (D6), 2026-10-02: follow OpenSea's structure closely; with our own colors and type. This draft maps the two onto the pages of SPEC section 7. A prototype lives in `web/prototype/`; `web/prototype/demo.html` shows one sale from both sides (seller and buyer screens side by side, synced through local storage): list, reserve, disclosure, verify, deposit, prove, offer, accept, confirmed. The "holds it" checks run the real wasm verifier on testnet data; wallet, deposit, proving, broadcast and mining are simulated and labelled so.
 
 ## 1. What we take from OpenSea
 

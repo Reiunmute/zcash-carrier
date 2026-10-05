@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zypher demo: one sale, both sides</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  body { overflow: hidden; }
+  .bar { height: 64px; border-bottom: 1px solid var(--ink); display: flex; align-items: center; gap: 16px; padding: 0 16px; }
+  .bar h1 { font-size: 18px; font-weight: 400; margin: 0; }
+  .bar .legend { flex: 1; font-size: 12px; line-height: 1.5; color: var(--mute); }
+  .panes { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 64px); }
+  .pane { display: grid; grid-template-rows: 36px 1fr; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--ink); }
+  .pane .label { background: var(--mid); border-bottom: 1px solid var(--ink); display: flex; align-items: center; padding: 0 12px; }
+  .pane:last-child .label { background: var(--light); }
+  iframe { border: 0; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>zypher demo: one sale, both sides</h1>
+  <p class="legend">Real: the "holds it" checks (R1 to R3 in wasm against testnet chain data). Simulated: wallet, deposit, proving, broadcast and mining. Nothing is sent. Try: seller lists Masks, sealed #1; buyer buys it.</p>
+  <button class="btn" id="reset">Reset demo</button>
+</div>
+<div class="panes">
+  <section class="pane"><div class="label meta">Seller's browser</div><iframe id="seller" title="Seller" src="index.html?as=seller#/account"></iframe></section>
+  <section class="pane"><div class="label meta">Buyer's browser</div><iframe id="buyer" title="Buyer" src="index.html?as=buyer#/"></iframe></section>
+</div>
+<script>
+document.getElementById('reset').addEventListener('click', () => {
+  localStorage.removeItem('zypher-demo-v1');
+  for (const id of ['seller', 'buyer']) document.getElementById(id).contentWindow.location.reload();
+});
+</script>
+</body>
+</html>
