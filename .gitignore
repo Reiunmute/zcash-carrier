@@ -10,3 +10,4 @@ seed.hex
 /web/prototype/pkg
 /research/stage1-checks/salebench/pkg
 /research/stage1-checks/salebench/target
+/.harness

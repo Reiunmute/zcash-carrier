@@ -49,6 +49,7 @@ const SEALED = COLLECTIONS[0].coll;
 const STORE = "zypher-demo-v1", SEEN = "zypher-demo-seller-seen";
 const ROLE = new URLSearchParams(location.search).get("as") === "seller" ? "seller" : "buyer";
 const FEE = 15000; // network fee for a 3-Action sale, paid by the buyer
+document.title = `zypher (${ROLE}, testnet demo)`;
 const fresh = () => ({ listings: {}, sale: null, held: { seller: [`${SEALED}/1`, `${SEALED}/2`], buyer: [] }, bal: { seller: 0, buyer: 0 }, connected: {}, feed: [] });
 const load = () => { try { return JSON.parse(localStorage.getItem(STORE)) || fresh(); } catch { return fresh(); } };
 let S = load();

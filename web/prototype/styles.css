@@ -42,7 +42,7 @@ button, input, select { font: inherit; color: inherit; }
 .top { height: 88px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 10; }
 .top .wrap { height: 100%; display: flex; align-items: center; gap: calc(3 * var(--u)); }
 .mark { font-size: 22px; letter-spacing: -0.02em; }
-.search { flex: 1; max-width: 520px; height: 44px; border: 1px solid var(--ink); border-radius: var(--r); padding: 0 16px; background: var(--paper); }
+.search { flex: 1; min-width: 0; max-width: 520px; height: 44px; border: 1px solid var(--ink); border-radius: var(--r); padding: 0 16px; background: var(--paper); }
 .search::placeholder { color: var(--mute); }
 .nav { display: flex; gap: calc(3 * var(--u)); }
 .nav a[aria-current="page"] { text-decoration: underline; text-underline-offset: 6px; }
@@ -160,6 +160,12 @@ canvas.art { width: 100%; aspect-ratio: 1; image-rendering: pixelated; display: 
 .steps li.done::before { content: "\2713"; background: var(--mid); }
 .steps li.now::before { background: var(--deep); color: var(--paper); border-color: var(--deep); }
 .steps .state { font-size: 13px; color: var(--mute); }
+.modal .steps li { padding: 8px 0; }
+.modal .steps .state { font-size: 12px; line-height: 1.5; }
+/* the main action stays in view when a modal scrolls */
+.modal .in > .btn.block { position: sticky; bottom: 12px; box-shadow: 0 0 0 12px var(--paper); }
+/* no toasts over an open modal */
+.scrim.open ~ .toasts { display: none; }
 
 /* prototype-only state switcher */
 .proto { position: fixed; right: 16px; bottom: 16px; background: var(--paper); border: 1px solid var(--ink); border-radius: var(--r); padding: 8px 10px; display: flex; gap: 6px; align-items: center; z-index: 40; font-size: 13px; }
@@ -167,7 +173,7 @@ canvas.art { width: 100%; aspect-ratio: 1; image-rendering: pixelated; display: 
 .proto button { height: 32px; padding: 0 10px; border: 1px solid var(--ink); border-radius: var(--r); background: var(--paper); cursor: pointer; }
 .proto button[aria-pressed="true"] { background: var(--mid); }
 
-.toasts { position: fixed; left: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 60; max-width: 360px; }
+.toasts { position: fixed; left: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 60; max-width: min(360px, calc(100vw - 32px)); pointer-events: none; }
 .toast { background: var(--ink); color: var(--paper); border-radius: var(--r); padding: 12px 14px; font-size: 14px; line-height: 1.5; }
 pre.json { background: var(--light); border-radius: var(--r); padding: 12px 14px; font-size: 12px; line-height: 1.5; overflow: auto; margin: 8px 0 16px; }
 .success { display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: center; }
@@ -176,11 +182,20 @@ pre.json { background: var(--light); border-radius: var(--r); padding: 12px 14px
 footer.foot { border-top: 1px solid var(--ink); padding: 24px 0 48px; }
 footer.foot .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 
+/* ---------- tablet: the top bar keeps only what fits ---------- */
+@media (max-width: 1023px) {
+  #who, .net { display: none; }
+}
+
 /* ---------- mobile: 4 columns, copy first ---------- */
 @media (max-width: 767px) {
   :root { --gutter: 16px; }
   .top { height: 64px; }
-  .top .search, .top .nav { display: none; }
+  .top .wrap { gap: 12px; }
+  .top .search, #who { display: none; }
+  .nav { gap: 12px; font-size: 14px; }
+  .net { display: none; }
+  #connect { padding: 0 14px; }
   .field .wrap { grid-template-columns: repeat(4, 1fr); padding-top: 40px; padding-bottom: 40px; }
   .field h1 { grid-column: 1 / -1; font-size: 36px; }
   .field p, .field .cta { grid-column: 1 / -1; }
