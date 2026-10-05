@@ -168,6 +168,10 @@ want "$out" "PAYMENT 10000 zats to the given key in $E3/sale_tx.hex"
 run 0 $V payment-file "$E3/sale_p4_tx.hex" "$P4_TX" "$(key3 sealed_acct5)" 10000
 want "$out" "PAYMENT 10000 zats to the given key in $E3/sale_p4_tx.hex"
 
+echo "== browser witness (tree states + compact blocks) equals the CLI's"
+run 0 cargo run --release --quiet --example witness_parity
+want "$out" "identical"
+
 echo "== artwork rebuilt from chain bytes"
 art=$(python3 scripts/render_from_chain.py 1 2)
 echo "$art"

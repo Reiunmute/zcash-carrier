@@ -43,6 +43,18 @@ for (const [name, col, item, pkg, walk, holder, want] of cases) {
   if (!ok) console.log(r.log.join('\n'));
 }
 
+// Wallet scanning: in the P4 sale's block, buyer vault 17's view key opens exactly the successor.
+{
+  let found = [], other = [];
+  for await (const b of lwd.blockRange(BASE, 4435628, 4435628)) {
+    found = JSON.parse(w.scan_block(b, key(K3, 'buyer_acct7')));
+    other = JSON.parse(w.scan_block(b, key(K3, 'sealed_acct2')));
+  }
+  const ok = found.length === 1 && found[0].txid === P4_TX && found[0].value === 0 && found[0].cmx.startsWith('1fcb838f70d9') && other.length === 0;
+  bad += !ok;
+  console.log(`${ok ? 'ok  ' : 'FAIL'} scan_block finds the P4 successor for vault 17 only: ${JSON.stringify(found.map((f) => [f.txid.slice(0, 12), f.action, f.value]))}, other key ${other.length}`);
+}
+
 // Lying or lagging servers must make verification fail, never pass.
 const sealed = json(`${E3}/collection_sealed.json`), holder17 = key(K3, 'buyer_acct7');
 const neg = async (name, ch, minTip, want) => {

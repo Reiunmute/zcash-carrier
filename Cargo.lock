@@ -413,6 +413,7 @@ dependencies = [
  "carrier-sale",
  "hex",
  "js-sys",
+ "orchard",
  "rand_core",
  "serde_json",
  "wasm-bindgen",

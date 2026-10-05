@@ -106,6 +106,31 @@ pub fn pow_find(t: &[u8], bits: u32) -> Result<u64, JsError> {
     Ok(ch::pow_find(&arr(t, "transcript")?, bits))
 }
 
+/// The notes in one serialized `CompactBlock` that the viewing key `fvk_hex` can open (external
+/// scope): JSON `[{txid, action, cmx, value, nullifier}]`. The nullifier is the note's own, for
+/// spotting its spend later; the memo needs the full transaction.
+#[wasm_bindgen]
+pub fn scan_block(block: &[u8], fvk_hex: &str) -> Result<String, JsError> {
+    let b = carrier_core::compact::parse_block(block).map_err(err)?;
+    let fvk = carrier_core::fvk_from_hex(fvk_hex).map_err(err)?;
+    let ivk = orchard::keys::PreparedIncomingViewingKey::new(&fvk.to_ivk(orchard::keys::Scope::External));
+    let mut out = vec![];
+    for tx in &b.vtx {
+        for (i, a) in tx.ironwood.iter().enumerate() {
+            if let Some(n) = carrier_core::compact::trial_decrypt(a, &ivk) {
+                out.push(serde_json::json!({
+                    "txid": carrier_core::txid_hex(&tx.txid),
+                    "action": i,
+                    "cmx": hex::encode(a.cmx),
+                    "value": n.value().inner(),
+                    "nullifier": hex::encode(n.nullifier(&fvk).to_bytes()),
+                }));
+            }
+        }
+    }
+    Ok(serde_json::Value::from(out).to_string())
+}
+
 /// Runs the whole two-party sale on synthetic notes (build, prove, sign, redact, seller checks,
 /// sign, extract with proof verification). Returns the log and the txid.
 #[cfg(feature = "sale")]

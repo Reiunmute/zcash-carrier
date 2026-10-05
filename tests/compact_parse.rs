@@ -26,8 +26,8 @@ fn compact_block_parses_like_prost() {
     assert_eq!(p.vtx.len(), 2);
     for (pt, bt) in p.vtx.iter().zip(&b.vtx) {
         assert_eq!(pt.txid.to_vec(), bt.txid);
-        let want: Vec<(Vec<u8>, Vec<u8>)> = bt.ironwood_actions.iter().map(|a| (a.nullifier.clone(), a.cmx.clone())).collect();
-        let got: Vec<(Vec<u8>, Vec<u8>)> = pt.ironwood.iter().map(|a| (a.nullifier.to_vec(), a.cmx.to_vec())).collect();
+        let want: Vec<_> = bt.ironwood_actions.iter().map(|a| (a.nullifier.clone(), a.cmx.clone(), a.ephemeral_key.clone(), a.ciphertext.clone())).collect();
+        let got: Vec<_> = pt.ironwood.iter().map(|a| (a.nullifier.to_vec(), a.cmx.to_vec(), a.epk.to_vec(), a.ciphertext.clone())).collect();
         assert_eq!(got, want); // Orchard actions (field 6) are not mixed in
     }
     // truncated input is an error, not a panic

@@ -260,6 +260,49 @@ pub fn extract(p: Pczt, carrier_action: usize, carrier_nf: &[u8; 32]) -> Result<
     Ok((tx, raw, succ))
 }
 
+/// Merkle path of the note `cmx`, mined at the first block of `blocks`, at the anchor of the last
+/// one. `tree_before` and `tree_anchor` are the `ironwoodTree` hex of `GetTreeState` at the
+/// block before the note and at the anchor; the root rebuilt from the compact blocks must equal
+/// `tree_anchor`'s. The browser fetches all three over grpc-web; the CLI has its own copy.
+pub fn witness(tree_before: &str, blocks: &[carrier_core::compact::Block], cmx: &[u8; 32], tree_anchor: &str) -> Result<(MerklePath, Anchor)> {
+    use incrementalmerkletree::witness::IncrementalWitness;
+    use orchard::{note::ExtractedNoteCommitment, tree::MerkleHashOrchard};
+    let read = |hex_tree: &str| -> Result<incrementalmerkletree::frontier::CommitmentTree<MerkleHashOrchard, 32>> {
+        if hex_tree.is_empty() {
+            return Ok(incrementalmerkletree::frontier::CommitmentTree::empty());
+        }
+        let b = (0..hex_tree.len()).step_by(2).map(|i| u8::from_str_radix(hex_tree.get(i..i + 2).unwrap_or("x"), 16)).collect::<Result<Vec<u8>, _>>().map_err(|_| anyhow!("tree state is not hex"))?;
+        Ok(zcash_primitives::merkle_tree::read_commitment_tree::<MerkleHashOrchard, _, 32>(&b[..])?)
+    };
+    let mut tree = read(tree_before)?;
+    let mut w: Option<IncrementalWitness<MerkleHashOrchard, 32>> = None;
+    for (i, b) in blocks.iter().enumerate() {
+        if i > 0 && (b.height != blocks[i - 1].height + 1 || b.prev_hash != blocks[i - 1].hash) {
+            bail!("blocks not contiguous and hash-linked at {}", b.height);
+        }
+        for tx in &b.vtx {
+            for a in &tx.ironwood {
+                let c = Option::from(ExtractedNoteCommitment::from_bytes(&a.cmx)).ok_or_else(|| anyhow!("bad cmx at {}", b.height))?;
+                let n = MerkleHashOrchard::from_cmx(&c);
+                match w.as_mut() {
+                    Some(w) => w.append(n).map_err(|_| anyhow!("witness full"))?,
+                    None => {
+                        tree.append(n).map_err(|_| anyhow!("tree full"))?;
+                        if a.cmx == *cmx {
+                            w = IncrementalWitness::from_tree(tree.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let w = w.ok_or_else(|| anyhow!("note not found in the given blocks"))?;
+    if w.root() != read(tree_anchor)?.root() {
+        bail!("rebuilt root differs from the tree state at the anchor");
+    }
+    Ok((w.path().ok_or_else(|| anyhow!("no path"))?.into(), Anchor::from(w.root())))
+}
+
 /// The whole sale on synthetic notes in a local two-leaf Merkle tree: buyer build, seller check,
 /// sign and extract (proof and signatures verified). Needs no network, so the browser build can
 /// run it. Returns the txid.

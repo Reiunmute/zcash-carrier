@@ -6,6 +6,9 @@ use anyhow::{anyhow, bail, Result};
 pub struct Action {
     pub nullifier: [u8; 32],
     pub cmx: [u8; 32],
+    /// ephemeral key (3) and the first 52 bytes of the note ciphertext (4), for trial decryption
+    pub epk: [u8; 32],
+    pub ciphertext: Vec<u8>,
 }
 
 pub struct Tx {
@@ -69,7 +72,7 @@ fn arr32(v: &[u8], what: &str) -> Result<[u8; 32]> {
 }
 
 /// Parses one `CompactBlock`: height (2), hash (3), prevHash (4), vtx (7); per tx the txid (2)
-/// and Ironwood actions (9) with nullifier (1) and cmx (2).
+/// and Ironwood actions (9) with nullifier (1), cmx (2), ephemeral key (3) and ciphertext (4).
 pub fn parse_block(b: &[u8]) -> Result<Block> {
     let mut blk = Block { height: 0, hash: vec![], prev_hash: vec![], vtx: vec![] };
     for (f, v) in fields(b)? {
@@ -83,16 +86,18 @@ pub fn parse_block(b: &[u8]) -> Result<Block> {
                     match (f, v) {
                         (2, Val::Bytes(id)) => tx.txid = arr32(id, "txid")?,
                         (9, Val::Bytes(a)) => {
-                            let (mut nf, mut cmx) = (None, None);
+                            let (mut nf, mut cmx, mut epk, mut ciphertext) = (None, None, [0u8; 32], vec![]);
                             for (f, v) in fields(a)? {
                                 match (f, v) {
                                     (1, Val::Bytes(x)) => nf = Some(arr32(x, "nullifier")?),
                                     (2, Val::Bytes(x)) => cmx = Some(arr32(x, "cmx")?),
+                                    (3, Val::Bytes(x)) => epk = arr32(x, "ephemeral key")?,
+                                    (4, Val::Bytes(x)) => ciphertext = x.to_vec(),
                                     _ => {}
                                 }
                             }
                             let (Some(nullifier), Some(cmx)) = (nf, cmx) else { bail!("compact block: Ironwood action without nullifier or cmx") };
-                            tx.ironwood.push(Action { nullifier, cmx });
+                            tx.ironwood.push(Action { nullifier, cmx, epk, ciphertext });
                         }
                         _ => {}
                     }
@@ -106,4 +111,15 @@ pub fn parse_block(b: &[u8]) -> Result<Block> {
         bail!("compact block {}: hash or prevHash missing", blk.height);
     }
     Ok(blk)
+}
+
+/// Whether `ivk` can decrypt a compact Ironwood action, and the note if so. This only finds which
+/// actions are ours; the memo needs the full transaction.
+pub fn trial_decrypt(a: &Action, ivk: &orchard::keys::PreparedIncomingViewingKey) -> Option<orchard::Note> {
+    use orchard::note_encryption::{CompactAction, IronwoodDomain};
+    let ct: [u8; 52] = a.ciphertext.as_slice().try_into().ok()?;
+    let nf = Option::from(orchard::note::Nullifier::from_bytes(&a.nullifier))?;
+    let cmx = Option::from(orchard::note::ExtractedNoteCommitment::from_bytes(&a.cmx))?;
+    let ca = CompactAction::from_parts(nf, cmx, zcash_note_encryption::EphemeralKeyBytes(a.epk), ct);
+    zcash_note_encryption::try_compact_note_decryption(&IronwoodDomain::for_compact_action(&ca), ivk, &ca).map(|(n, _)| n)
 }
