@@ -1,8 +1,10 @@
-# Carrier
+# Zarrier
 
 **Private collectibles on Zcash that you actually own, sold in one atomic transaction.**
 
-Carrier turns a shielded Zcash note into a collectible. The note is the item, its encrypted memo holds the artwork, and Zcash's own zero-knowledge circuit links each owner to the next. A sale moves the item and the payment in the same transaction, so no marketplace ever holds anyone's funds or art. It works on Zcash as deployed today: no smart contracts, no new token standard, no protocol change.
+Zarrier turns a shielded Zcash note into a collectible. The note is the item, its encrypted memo holds the artwork, and Zcash's own zero-knowledge circuit links each owner to the next. A sale moves the item and the payment in the same transaction, so no marketplace ever holds anyone's funds or art. It works on Zcash as deployed today: no smart contracts, no new token standard, no protocol change.
+
+The note that holds an item is called a **carrier note**. That is where the name comes from, and why the code, crates and CLI are called `carrier`.
 
 > **Status:** working proof of concept on Zcash **testnet** (Ironwood pool, NU6.3). Not audited. No real funds. Built for the Crypto World's Fair hackathon, Zcash track.
 
@@ -18,7 +20,7 @@ Zcash makes payments private, but collectibles on Zcash have not really belonged
 - **Escrow marketplaces** hold the buyer's money between payment and delivery. One hack loses everyone's funds.
 - **Zcash Shielded Assets (ZSA)**, the native token standard, is not on mainnet and has no date.
 
-## What Carrier does
+## What Zarrier does
 
 - **Ownership is on chain.** Holding an item means holding one zero-value shielded note. No company list is involved.
 - **The zk proof enforces the chain of owners.** A transfer spends the old note and creates the new one in the same Action, and the Action circuit forces `rho_new = nf_old`. Each item therefore has exactly one valid successor.
@@ -95,16 +97,16 @@ export STATE=state OFF=10            # OFF shifts role accounts 1-4 to a fresh k
 
 Environment: `LWD` (lightwalletd endpoint, default `https://testnet.zec.rocks:443`), `LWD2` (second server for cross-checks), `DRY=1` (build and prove without broadcasting), `HOLDER_FVK` (enables the R3 holder check in `verify`).
 
-## Similar projects and how Carrier differs
+## Similar projects and how Zarrier differs
 
-| | zkSNARKs (Zilkroad) | Bitcoin Ordinals | ZecBit (whitepaper) | Carrier |
+| | zkSNARKs (Zilkroad) | Bitcoin Ordinals | ZecBit (whitepaper) | Zarrier |
 |---|---|---|---|---|
 | Ownership record | operator database | on chain, public | ZSA testnet; a note-chain design for mainnet on paper | on chain, shielded |
 | Owner-to-owner link | trust the operator | indexer rule | `rho = nf`, specified, not deployed | `rho = nf`, checked by every node |
 | Atomic trade | no | yes (PSBT) | custodial escrow; trustless trade is their top open question | yes (PCZT), mined on testnet |
 | Who sees holdings | the operator | everyone | shielded | shielded |
 
-What Carrier has that the others do not:
+What Zarrier has that the others do not:
 - **On-chain ownership on Zcash today**, without waiting for ZSA.
 - **No custody at any step.** The sale is one transaction that buyer and seller build together.
 - **Mined testnet transactions for every step**, including the sale between two separately held wallets.
