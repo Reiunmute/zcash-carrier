@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Broadcast runbook, 2026-10-02. Testnet only. Approved by Ryot in session ("위 3개 전부 진행하도록").
+# Broadcast runbook, 2026-10-02. Testnet only. Approved by Ryot in session ("proceed with all three of the above").
 #   P12  sale of item #1 between two separately held seeds (state/ and state/buyer/)
 #   P9   FINAL hard seal on a new test collection (OFF=30, files in state/c2)
 #

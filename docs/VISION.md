@@ -1,7 +1,5 @@
 # Carrier: vision and goals (the simple version)
 
-[한국어](VISION.ko.md)
-
 Written 2026-10-01. The product is called "zypher" for now (2026-10-03); this document still says "Carrier" for it.
 
 ## The vision in one sentence
