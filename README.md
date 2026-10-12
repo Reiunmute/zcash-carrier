@@ -1,3 +1,5 @@
+<img src="brand/zarrier-icon-512.png" width="120" alt="Zarrier icon">
+
 # Zarrier
 
 **Private collectibles on Zcash that you actually own, sold in one atomic transaction.**
