@@ -4,7 +4,7 @@ Reviewer: Codex CLI 0.144.5, model `gpt-5.6-sol`, reasoning effort `xhigh`, read
 Input: a clean clone at commit `7008bd4` (no `state/`; all 214 blobs added since `987d881` scanned clean for the seed and spending keys).
 Scope: every change after `987d881` (the follow-ups to the first re-review) up to `7008bd4`. Prompt: protocol security against SPEC draft 4, code/SPEC/doc mismatches, denial of service, deployment security.
 
-Kept verbatim below, except that absolute paths were rewritten to repo-relative paths and em dashes to colons (docs rule). Follow-ups: see the commits after `56e6bf1` and the status notes in `docs/OPEN_ISSUES.md`.
+Kept verbatim below, except that absolute paths were rewritten to repo-relative paths and em dashes to colons (docs rule). Follow-ups: see the commits after `b2b43d4` and the status notes in `docs/OPEN_ISSUES.md`.
 
 ## Follow-up status (2026-10-12)
 
