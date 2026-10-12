@@ -1,4 +1,4 @@
-/* zypher marketplace prototype. Brand tokens; layout after OpenSea.
+/* Zarrier marketplace prototype. Zarrier brand tokens; layout after OpenSea.
    See docs/marketplace/DESIGN.md. */
 @font-face {
   font-family: "Departure Mono";
@@ -14,8 +14,8 @@
 }
 
 :root {
-  --paper: #ffffff;
-  --ink: #000000;
+  --paper: #f4efe2;
+  --ink: #231f20;
   --deep: #231f20;
   --mid: #f4b728;
   --light: #fbe3a6;

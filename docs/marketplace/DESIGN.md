@@ -1,6 +1,6 @@
 # Marketplace design direction (draft 1, 2026-10-02)
 
-Ryot's direction (D6), 2026-10-02: follow OpenSea's structure closely; with our own colors and type. This draft maps the two onto the pages of SPEC section 7. A prototype lives in `web/prototype/`; `web/prototype/demo.html` shows one sale from both sides (seller and buyer screens side by side, synced through local storage): list, reserve, disclosure, verify, deposit, prove, offer, accept, confirmed. The "holds it" checks run the real wasm verifier on testnet data; wallet, deposit, proving, broadcast and mining are simulated and labelled so. Run it with `python3 scripts/serve_web.py` (no caching) and open http://127.0.0.1:8790/demo.html; narrow screens show one side at a time, and "Seller window" / "Buyer window" open each side in its own browser window. `web/prototype/e2e_demo.mjs` (Playwright) clicks through the whole sale and checks the layout at 375, 512, 800 and 1280 px.
+Ryot's direction (D6), 2026-10-02: follow OpenSea's structure closely, with our own colors and type. Colors were updated to the Zarrier brand on 2026-10-12. This draft maps the two onto the pages of SPEC section 7. A prototype lives in `web/prototype/`; `web/prototype/demo.html` shows one sale from both sides (seller and buyer screens side by side, synced through local storage): list, reserve, disclosure, verify, deposit, prove, offer, accept, confirmed. The "holds it" checks run the real wasm verifier on testnet data; wallet, deposit, proving, broadcast and mining are simulated and labelled so. Run it with `python3 scripts/serve_web.py` (no caching) and open http://127.0.0.1:8790/demo.html; narrow screens show one side at a time, and "Seller window" / "Buyer window" open each side in its own browser window. `web/prototype/e2e_demo.mjs` (Playwright) clicks through the whole sale and checks the layout at 375, 512, 800 and 1280 px.
 
 ## 1. What we take from OpenSea
 
@@ -30,11 +30,11 @@ Not taken: OpenSea's dark default, its blue accent, its fonts (GT America), shop
 
 | Token | Value | Use here |
 |---|---|---|
-| Paper | `#FFFFFF` | page surface, light-first |
-| Ink | `#000000` | text, 1 px structural rules, secondary buttons |
-| Deep | `#231f20` | primary action (Connect, Buy, List) with Paper text |
-| Mid | `#f4b728` | edge-connected hero field, selected tab and filter, Ink text |
-| Light | `#fbe3a6` | quiet bands: badges, notices, network badge, Ink text |
+| Paper | `#F4EFE2` | page surface, light-first |
+| Ink | `#231F20` (Zcash black) | text, 1 px structural rules, secondary buttons |
+| Deep | `#231F20` | primary action (Connect, Buy, List) with Paper text |
+| Mid | `#F4B728` (Zcash yellow) | edge-connected hero field, selected tab and filter, Ink text |
+| Light | `#FBE3A6` (yellow tint) | quiet bands: badges, notices, network badge, Ink text |
 | Type | Departure Mono (one weight), NeoDunggeunmo Code for Korean | all interface text; hierarchy from size, space and rules, never synthetic bold |
 | Grid | 12 columns, 24 px gutters; 4 columns, 16 px on mobile; 8 px unit | page grid |
 | Radius | 0 for fields, 8 px for controls and cards, pill for compact primary actions | |
@@ -42,7 +42,7 @@ Not taken: OpenSea's dark default, its blue accent, its fonts (GT America), shop
 
 Contrast: Paper text only on Deep; Ink on Mid and Light.
 
-The marketplace shows "zypher" (tentative name, 2026-10-03) as plain Departure Mono text until it has its own mark.
+The marketplace shows its name as plain Departure Mono text. The Zarrier mark lives in `brand/`.
 
 ## 3. Decisions in this draft
 
@@ -50,4 +50,4 @@ The marketplace shows "zypher" (tentative name, 2026-10-03) as plain Departure M
 - **Pixel art is drawn from the memo bytes** in the browser (26 by 26, `image-rendering: pixelated`), never from an uploaded image.
 - **Verification badges carry the rule name** (R1, R2, R3) and a plain label, so "verified" never means "the server says so".
 - **Testnet is visible everywhere**: a network badge in the top bar and "TAZ, no value" next to prices.
-- Open questions for Ryot: the final name and mark (zypher is tentative); Korean UI at launch or later.
+- Open questions for Ryot: Korean UI at launch or later.
