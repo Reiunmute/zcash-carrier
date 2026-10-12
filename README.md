@@ -95,7 +95,7 @@ export STATE=state OFF=10            # OFF shifts role accounts 1-4 to a fresh k
 
 Environment: `LWD` (lightwalletd endpoint, default `https://testnet.zec.rocks:443`), `LWD2` (second server for cross-checks), `DRY=1` (build and prove without broadcasting), `HOLDER_FVK` (enables the R3 holder check in `verify`).
 
-## How it compares
+## Similar projects and how Carrier differs
 
 | | zkSNARKs (Zilkroad) | Bitcoin Ordinals | ZecBit (whitepaper) | Carrier |
 |---|---|---|---|---|
@@ -104,7 +104,13 @@ Environment: `LWD` (lightwalletd endpoint, default `https://testnet.zec.rocks:44
 | Atomic trade | no | yes (PSBT) | custodial escrow; trustless trade is their top open question | yes (PCZT), mined on testnet |
 | Who sees holdings | the operator | everyone | shielded | shielded |
 
-We did not invent note chaining. ZecBit's whitepaper (Part VIII, dated September 2026) describes the same core construction, with no deployment. Carrier adds a working implementation, the trustless atomic sale, the sealed supply and a verifier that runs in the browser. Details: [`docs/research/zecbit-whitepaper.md`](docs/research/zecbit-whitepaper.md).
+What Carrier has that the others do not:
+- **On-chain ownership on Zcash today**, without waiting for ZSA.
+- **No custody at any step.** The sale is one transaction that buyer and seller build together.
+- **Mined testnet transactions for every step**, including the sale between two separately held wallets.
+- **A sealed supply** and **a verifier that runs in the browser**.
+
+Our notes on ZecBit's design: [`docs/research/zecbit-whitepaper.md`](docs/research/zecbit-whitepaper.md).
 
 ## Security model and known limits
 

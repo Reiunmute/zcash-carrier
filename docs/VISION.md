@@ -37,7 +37,7 @@ A marketplace website where:
 - Store users' secret keys on our servers.
 - Collect lists that link people's social accounts to their Zcash addresses.
 - Sell or offer test-network items as if they were worth money.
-- Hide limitations or overclaim. For example, we did not invent the basic chaining trick (another team published it first). What we add is the safe one-step sale and a working system.
+- Hide limitations or overclaim.
 
 ## How we know it can work
 
