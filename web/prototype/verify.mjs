@@ -26,5 +26,5 @@ async function verifyFromChain({ collection, item, pkg = null, walk = null, hold
   return r;
 }
 
-window.zypherVerify = verifyFromChain;
-window.dispatchEvent(new Event('zypher-verify-ready'));
+window.zarrierVerify = verifyFromChain;
+window.dispatchEvent(new Event('zarrier-verify-ready'));

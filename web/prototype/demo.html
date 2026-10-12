@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>zypher demo: one sale, both sides</title>
+<title>Zarrier demo: one sale, both sides</title>
 <link rel="stylesheet" href="styles.css?v=5">
 <style>
   html, body { height: 100%; }
@@ -27,14 +27,14 @@
 </head>
 <body>
 <div class="bar">
-  <h1>zypher demo: one sale, both sides</h1>
+  <h1>Zarrier demo: one sale, both sides</h1>
   <p class="legend">Real: the "holds it" checks (R1 to R3 in wasm on testnet data). Simulated: wallet, deposit, proving, broadcast, mining; nothing is sent. Try: the seller lists Masks, sealed #1; the buyer buys it.</p>
   <div class="ctl">
     <button class="btn" data-show="both" aria-pressed="true">Both</button>
     <button class="btn" data-show="seller" aria-pressed="false">Seller</button>
     <button class="btn" data-show="buyer" aria-pressed="false">Buyer</button>
-    <a class="btn" href="index.html?as=seller#/account" target="zypher-seller">Seller window</a>
-    <a class="btn" href="index.html?as=buyer#/" target="zypher-buyer">Buyer window</a>
+    <a class="btn" href="index.html?as=seller#/account" target="zarrier-seller">Seller window</a>
+    <a class="btn" href="index.html?as=buyer#/" target="zarrier-buyer">Buyer window</a>
     <button class="btn" id="reset">Reset demo</button>
   </div>
 </div>
@@ -50,7 +50,7 @@ const show = (v) => { panes.dataset.show = v; document.querySelectorAll('[data-s
 document.querySelectorAll('button[data-show]').forEach((b) => b.addEventListener('click', () => show(b.dataset.show)));
 if (innerWidth < 1100) show('seller');
 document.getElementById('reset').addEventListener('click', () => {
-  localStorage.removeItem('zypher-demo-v1');
+  localStorage.removeItem('zarrier-demo-v1');
   for (const id of ['seller', 'buyer']) document.getElementById(id).contentWindow.location.reload();
 });
 </script>

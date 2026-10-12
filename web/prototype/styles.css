@@ -194,6 +194,7 @@ footer.foot .wrap { display: flex; justify-content: space-between; gap: 16px; fl
   .top .wrap { gap: 12px; }
   .top .search, #who { display: none; }
   .nav { gap: 12px; font-size: 14px; }
+  .mark { font-size: 18px; }
   .net { display: none; }
   #connect { padding: 0 14px; }
   .field .wrap { grid-template-columns: repeat(4, 1fr); padding-top: 40px; padding-bottom: 40px; }

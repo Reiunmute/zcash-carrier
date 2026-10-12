@@ -1,4 +1,4 @@
-// zypher marketplace prototype. Layout after OpenSea,
+// Zarrier marketplace prototype. Layout after OpenSea,
 // brand tokens (docs/marketplace/DESIGN.md). Routes follow SPEC section 7.
 // Pages are built as HTML strings from the constant mock data below (labels go through esc).
 // The real app renders chain and order-book data, which is untrusted: build DOM nodes there.
@@ -46,10 +46,10 @@ const COLLECTIONS = [
 // Real: the "holds it" checks (R1 to R3 in wasm over testnet chain data, verify.mjs).
 // Simulated: payment, deposit, proving, broadcast, mining. Nothing is sent anywhere.
 const SEALED = COLLECTIONS[0].coll;
-const STORE = "zypher-demo-v1", SEEN = "zypher-demo-seller-seen";
+const STORE = "zarrier-demo-v1", SEEN = "zarrier-demo-seller-seen";
 const ROLE = new URLSearchParams(location.search).get("as") === "seller" ? "seller" : "buyer";
 const FEE = 15000; // network fee for a 3-Action sale, paid by the buyer
-document.title = `zypher (${ROLE}, testnet demo)`;
+document.title = `Zarrier (${ROLE}, testnet demo)`;
 const fresh = () => ({ listings: {}, sale: null, held: { seller: [`${SEALED}/1`, `${SEALED}/2`], buyer: [] }, bal: { seller: 0, buyer: 0 }, connected: {}, feed: [] });
 const load = () => { try { return JSON.parse(localStorage.getItem(STORE)) || fresh(); } catch { return fresh(); } };
 let S = load();
@@ -99,8 +99,8 @@ const hydrate = (root) => root.querySelectorAll("i[data-art]").forEach((el) => e
 
 // Real verification through verify.mjs (wasm). Resolves to the verdict object.
 async function chainCheck(c, it, withKey, progress) {
-  if (!window.zypherVerify) await new Promise((r) => window.addEventListener("zypher-verify-ready", r, { once: true }));
-  return window.zypherVerify({
+  if (!window.zarrierVerify) await new Promise((r) => window.addEventListener("zarrier-verify-ready", r, { once: true }));
+  return window.zarrierVerify({
     collection: { network: "test", coll: c.coll, issuer_fvk: c.issuer, genesis_txid: c.genesis },
     item: it.num,
     pkg: withKey ? null : { item: it.num, label: "issuance only", hops: [] },
@@ -496,5 +496,5 @@ document.addEventListener("input", (e) => {
 $("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim") closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 window.addEventListener("hashchange", () => { ui = { ...ui, tab: "items", listedOnly: false }; window.scrollTo(0, 0); render(); });
-window.zypherReset = () => { localStorage.removeItem(STORE); S = load(); changed(); };
+window.zarrierReset = () => { localStorage.removeItem(STORE); S = load(); changed(); };
 changed();

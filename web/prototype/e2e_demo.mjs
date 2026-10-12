@@ -44,7 +44,7 @@ for (const width of [375, 512, 800, 1280]) {
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 watch(page);
 await page.goto(`${BASE}/demo.html`);
-await page.evaluate(() => localStorage.removeItem('zypher-demo-v1'));
+await page.evaluate(() => localStorage.removeItem('zarrier-demo-v1'));
 await page.reload();
 const seller = page.frameLocator('#seller'), buyer = page.frameLocator('#buyer');
 
