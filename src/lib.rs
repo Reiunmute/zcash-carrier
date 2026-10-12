@@ -73,6 +73,17 @@ pub async fn tip(c: &mut Client) -> Result<u64> {
 }
 
 /// Returns (tx, mined height or None).
+/// The server's height for a tx proves nothing by itself: require the txid in the compact block
+/// at that height.
+pub async fn included_at(c: &mut Client, txid: &str, h: u64) -> Result<()> {
+    let b = blocks(c, h, h).await?;
+    if b.iter().flat_map(|b| &b.vtx).any(|t| txid_hex(&t.txid) == txid) {
+        Ok(())
+    } else {
+        bail!("{txid} is not in the compact block at height {h}")
+    }
+}
+
 pub async fn get_tx(c: &mut Client, txid: &str) -> Result<(Transaction, Option<u64>)> {
     let raw = c
         .get_transaction(TxFilter { block: None, index: 0, hash: txid_bytes(txid)?.to_vec() })

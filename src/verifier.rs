@@ -12,8 +12,8 @@ use std::collections::{BTreeSet, HashMap};
 use zcash_primitives::transaction::Transaction;
 
 
-/// Largest tip difference between `LWD` and `LWD2` accepted (blocks).
-pub const MAX_TIP_SKEW: u64 = 3;
+/// How long `Chain::index` waits for `LWD` and `LWD2` to report the same tip.
+pub const TIP_WAIT_SECS: u64 = 300;
 
 pub struct Chain {
     pub c: Client,
@@ -49,13 +49,20 @@ impl Chain {
         };
         let mut to = tip(&mut c).await?;
         if let Some((c2, url)) = c2.as_mut() {
-            // A lagging or lying second server must not shorten the range much: a spend in the
-            // blocks it leaves out would go unseen.
-            let t2 = tip(c2).await?;
-            if to.abs_diff(t2) > MAX_TIP_SKEW {
-                bail!("cross-check: tips differ by more than {MAX_TIP_SKEW} blocks ({} at {to}, {url} at {t2})", lwd_url());
+            // Both servers must cover the same tip. Scanning only to the lower one would miss a
+            // spend in the blocks the other already has, so wait for agreement or fail.
+            let start = std::time::Instant::now();
+            loop {
+                let t2 = tip(c2).await?;
+                if t2 == to {
+                    break;
+                }
+                if start.elapsed().as_secs() >= TIP_WAIT_SECS {
+                    bail!("cross-check: tips still differ after {TIP_WAIT_SECS} s ({} at {to}, {url} at {t2})", lwd_url());
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                to = tip(&mut c).await?;
             }
-            to = to.min(t2);
         }
         let bs = blocks(&mut c, from, to).await?;
         if let Some((c2, url)) = c2.as_mut() {

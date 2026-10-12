@@ -401,6 +401,8 @@ async fn run() -> Result<()> {
         "sale-list" => sale_list(c).await?,
         "sale-intent" => sale_intent()?,
         "sale-disclose" => sale_disclose(c).await?,
+        "sale-renew" => sale_renew()?,
+        "sale-extend" => sale_extend()?,
         "sale-buy" => sale_buy(c).await?,
         "sale-accept" => sale_accept(c, dry).await?,
         "recover" => recover(c).await?,
@@ -428,7 +430,7 @@ async fn run() -> Result<()> {
                 println!("acct{n} fvk {}", fvk_hex(&acct(n)?.fvk));
             }
         }
-        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | sale-list | sale-intent | sale-disclose | sale-buy | sale-accept | send <fvk> <zats> | recover | keys"),
+        _ => println!("commands: info | scan <from_height> | genesis | final | transfer | attack-double | attack-forge | attack-mint | sale-list | sale-intent | sale-disclose | sale-renew | sale-extend | sale-buy | sale-accept | send <fvk> <zats> | recover | keys"),
     }
     Ok(())
 }
@@ -461,7 +463,8 @@ async fn find_change(c: &mut Client, txid: &str, fvk: &FullViewingKey) -> Result
 // Each subcommand derives only the keys of its own role. Buyer and seller can run with different
 // STATE dirs (separate seeds). Through SALE_DIR they exchange only what the order book would
 // relay (SPEC 3.1, 3.2): the public listing, the intent, the encrypted disclosure and the
-// encrypted PCZT. Order: sale-list, sale-intent, sale-disclose, sale-buy, sale-accept.
+// encrypted PCZT. Order: sale-list, sale-intent, sale-disclose, sale-buy, sale-accept. A buyer
+// whose lease runs out first sends sale-renew; the seller answers with sale-extend.
 
 /// Total ZEC supply in zats; any price above it is invalid input.
 const MAX_MONEY: u64 = 21_000_000 * 100_000_000;
@@ -493,6 +496,20 @@ struct SellerListing {
     seen_nonces: Vec<String>,
     /// (holder transcript, until unix seconds)
     lease: Option<(String, u64)>,
+    /// the vault signature of the holder's disclosure, hex; it keys lease renewals
+    #[serde(default)]
+    disclosure_sig: Option<String>,
+    /// sequence number of the last renewal accepted (type 1 messages from the holder)
+    #[serde(default)]
+    renew_seq: u32,
+}
+
+/// A lease renewal (X6): a type 1 message from the holder, `SALE_DIR/renew.json`. The body is
+/// `channel::renew_token` sealed to the seller's channel key under the holder's transcript.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Renew {
+    seq: u32,
+    body: String,
 }
 
 /// A buyer's intent (SPEC 3.2 step 1), posted in the clear. `SALE_DIR/intent.json`.
@@ -611,7 +628,7 @@ async fn verified_carrier(mut c: Client, col: &Collection, prov: Provenance<'_>,
     }
 }
 
-/// Seller: list the item held by SELLER_ACCT's vault, proven by PACKAGE, for PRICE zats. Writes
+/// Seller: list the item held by SELLER_ACCT's vault, proven by PACKAGE, for PRICE zats (default 0). Writes
 /// the public listing to SALE_DIR and keeps everything else private.
 async fn sale_list(c: Client) -> Result<()> {
     let col: Collection = load("collection.json")?;
@@ -619,9 +636,11 @@ async fn sale_list(c: Client) -> Result<()> {
     let (seller, pay_acct) = (acct(env_u32("SELLER_ACCT", 3)?)?, acct(env_u32("PAY_ACCT", 5)?)?);
     // The seller lists only what the verifier says it holds.
     let (ch, held, hop, action) = verified_carrier(c, &col, Provenance::Package(&pkg), &seller.fvk, None).await?;
-    let price = env_u64("PRICE", 10_000)?;
-    if price == 0 || price > MAX_MONEY {
-        bail!("PRICE must be between 1 and {MAX_MONEY} zats");
+    // SPEC D4 default: testnet listings are free transfers, and the public order book takes only
+    // price 0. A positive PRICE is for private protocol tests between our own seeds.
+    let price = env_u64("PRICE", 0)?;
+    if price > MAX_MONEY {
+        bail!("PRICE must be at most {MAX_MONEY} zats");
     }
     let expiry = ch.to.checked_add(env_u64("LISTING_TTL", 1_000)?).ok_or_else(|| anyhow!("LISTING_TTL overflow"))?;
     // A fresh diversified pay address per listing, so one seller's listings are not linkable.
@@ -633,7 +652,7 @@ async fn sale_list(c: Client) -> Result<()> {
     let item = pkg.item;
     save(
         "listing_private.json",
-        &SellerListing { public, channel_sk: hex::encode(csk), carrier: held, carrier_action: action, vault_fvk: fvk_hex(&seller.fvk), pay_addr: hex::encode(pay.to_raw_address_bytes()), package: pkg, seen_nonces: vec![], lease: None },
+        &SellerListing { public, channel_sk: hex::encode(csk), carrier: held, carrier_action: action, vault_fvk: fvk_hex(&seller.fvk), pay_addr: hex::encode(pay.to_raw_address_bytes()), package: pkg, seen_nonces: vec![], lease: None, disclosure_sig: None, renew_seq: 0 },
     )?;
     println!("LISTED item #{item} hop {hop} price {price} zats expiry {expiry}, listing {}.. in {}", &hex::encode(id)[..12], listing_path().display());
     Ok(())
@@ -692,13 +711,60 @@ async fn sale_disclose(mut c: Client) -> Result<()> {
         channel::Lease::Granted { until } => sl.lease = Some((hex::encode(t), until)),
     }
     sl.seen_nonces.push(i.nonce.clone());
-    save("listing_private.json", &sl)?;
     let pay: [u8; 43] = hex::decode(&sl.pay_addr)?.try_into().map_err(|_| anyhow!("pay address length"))?;
     let package = if std::env::var("RECORDS_ONLY").is_ok() { vec![] } else { serde_json::to_vec(&sl.package)? };
     let d = channel::Disclosure { vault_fvk: seller.fvk.to_bytes(), carrier_txid: txid_bytes(&sl.carrier.txid)?, carrier_action: u32::try_from(sl.carrier_action)?, pay_addr: pay, package };
-    let m = channel::seal_disclosure(&d, &seller.sak, &arr32(&i.buyer_channel_key)?, 0, &t, &mut OsRng)?;
+    let (m, sig) = channel::seal_disclosure_with_sig(&d, &seller.sak, &arr32(&i.buyer_channel_key)?, 0, &t, &mut OsRng)?;
+    sl.disclosure_sig = Some(hex::encode(sig));
+    save("listing_private.json", &sl)?;
     fs::write(sale_dir().join("disclosure.bin"), &m)?;
     println!("DISCLOSED to transcript {}.. (lease until {}), {} bytes{}", &hex::encode(t)[..12], sl.lease.as_ref().map_or(0, |l| l.1), m.len(), if d.package.is_empty() { ", records only" } else { "" });
+    Ok(())
+}
+
+/// Buyer: ask to renew the lease, as renewal number RENEW_SEQ (default 1, then 2, ...). The token
+/// comes from the disclosure's vault signature, which only the seller and this buyer have seen,
+/// so neither a replayed intent nor the relay can keep a lease alive.
+fn sale_renew() -> Result<()> {
+    let l: PublicListing = read_json(&listing_path())?;
+    checked_listing(&l)?;
+    let bi: BuyerIntent = read_json(&dir().join("intent_private.json"))?;
+    let t = transcript_for(&l, &bi.intent.buyer_channel_key, &bi.intent.nonce)?;
+    let (_, sig) = channel::open_disclosure_with_sig(&arr32(&bi.channel_sk)?, 0, &t, &read_capped(&sale_dir().join("disclosure.bin"))?)?;
+    let seq = env_u32("RENEW_SEQ", 1)?;
+    let body = channel::seal(&arr32(&l.seller_channel_key)?, channel::TYPE_INTENT, channel::BUYER_TO_SELLER, seq, &t, &channel::renew_token(&sig, &t), &mut OsRng)?;
+    fs::write(sale_dir().join("renew.json"), serde_json::to_string_pretty(&Renew { seq, body: hex::encode(body) })?)?;
+    println!("RENEW {seq} requested for transcript {}..", &hex::encode(t)[..12]);
+    Ok(())
+}
+
+/// Seller: extend the lease for an authenticated renewal from its holder. Each renewal needs a
+/// higher sequence number than the last, so an old one cannot be replayed. It fails if another
+/// buyer took the lease after this one ran out.
+fn sale_extend() -> Result<()> {
+    let mut sl: SellerListing = load("listing_private.json")?;
+    let r: Renew = read_json(&sale_dir().join("renew.json"))?;
+    let (holder, until) = sl.lease.clone().ok_or_else(|| anyhow!("REFUSED: no lease granted for this listing"))?;
+    let sig: [u8; 64] = hex::decode(sl.disclosure_sig.as_deref().ok_or_else(|| anyhow!("no disclosure sent yet"))?)?.try_into().map_err(|_| anyhow!("signature length"))?;
+    let t = arr32(&holder)?;
+    let token = channel::open(&arr32(&sl.channel_sk)?, channel::TYPE_INTENT, channel::BUYER_TO_SELLER, r.seq, &t, &hex::decode(&r.body)?)
+        .map_err(|e| anyhow!("REFUSED: the renewal is not from the lease holder ({e})"))?;
+    if token != channel::renew_token(&sig, &t) {
+        bail!("REFUSED: renewal token does not match the disclosure");
+    }
+    if r.seq <= sl.renew_seq {
+        bail!("REFUSED: renewal {} already used (last {})", r.seq, sl.renew_seq);
+    }
+    sl.renew_seq = r.seq;
+    let mut leases = channel::Leases::default();
+    let id = arr32(&sl.public.listing_id)?;
+    leases.request(id, t, until.saturating_sub(channel::LEASE_SECS));
+    match leases.request(id, t, now()?) {
+        channel::Lease::Granted { until } => sl.lease = Some((holder.clone(), until)),
+        channel::Lease::Reserved { until } => bail!("RESERVED until {until}"),
+    }
+    save("listing_private.json", &sl)?;
+    println!("EXTENDED lease (renewal {}) for transcript {}.. until {}", r.seq, &holder[..12], sl.lease.as_ref().map_or(0, |l| l.1));
     Ok(())
 }
 
@@ -730,10 +796,14 @@ async fn sale_buy(c: Client) -> Result<()> {
     // shifted by OFF, as for every other role.
     let auto = std::env::var("BUYER_VAULT_ACCT").as_deref() == Ok("auto");
     let bv_idx = if auto {
+        // One allocation at a time per STATE, and the index is reserved before any proving, so
+        // two purchases never share a vault (SPEC 2.1 step 6).
+        let _lock = VaultLock::take()?;
         let seed = seed()?;
         let scan = scan_records(&mut c, &seed, env_u64("BIRTHDAY", IRONWOOD_ACTIVATION)?).await?;
         let i = next_vault_index(&seed, &scan)?;
-        println!("  vault index {i} (auto: {} recorded vault(s), none of index {i} on chain since {})", scan.owned.len(), scan.from);
+        fs::write(dir().join("vault_next"), (i + 1).to_string())?;
+        println!("  vault index {i} reserved (auto: {} recorded vault(s), none of index {i} on chain since {})", scan.owned.len(), scan.from);
         i
     } else {
         acct_index(env_u32("BUYER_VAULT_ACCT", 6)?)
@@ -830,10 +900,6 @@ async fn sale_buy(c: Client) -> Result<()> {
     let pk = carrier_sale::proving_key();
     println!("  proving key {:.1}s", tm.elapsed().as_secs_f64());
     let built = carrier_sale::buyer_build(sale, &pk, &mut OsRng, &mut |l| println!("{l}"))?;
-    if auto {
-        // Reserve the index: a later purchase must not reuse it while this PCZT may still mine.
-        fs::write(dir().join("vault_next"), (bv_idx + 1).to_string())?;
-    }
     let enc = channel::seal(&arr32(&l.seller_channel_key)?, channel::TYPE_PCZT, channel::BUYER_TO_SELLER, 0, &t, &built.pczt, &mut OsRng)?;
     fs::write(sale_pczt_path(), &enc)?;
     println!("SALE-BUY wrote {} ({} bytes PCZT, {} encrypted), carrier action {}, pays {pay_value} zats", sale_pczt_path().display(), built.pczt.len(), enc.len(), built.carrier_action);
@@ -981,9 +1047,23 @@ async fn scan_records(c: &mut Client, seed: &[u8; 32], from: u64) -> Result<Reco
     Ok(RecordScan { owned, from, actions })
 }
 
+/// Exclusive lock on vault index allocation for one STATE (`STATE/vault.lock`), released on drop.
+struct VaultLock(PathBuf);
+impl VaultLock {
+    fn take() -> Result<Self> {
+        let p = dir().join("vault.lock");
+        fs::OpenOptions::new().write(true).create_new(true).open(&p).map_err(|_| anyhow!("another purchase is allocating a vault index ({} exists; remove it if no purchase is running)", p.display()))?;
+        Ok(VaultLock(p))
+    }
+}
+impl Drop for VaultLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
 /// SPEC 2.1 step 6: the next vault index after every recorded one and every one this STATE has
 /// reserved (`vault_next`), skipping any index that received a note in the scanned range.
-/// ponytail: one buyer process per STATE at a time; a lock file if purchases run concurrently.
 fn next_vault_index(seed: &[u8; 32], scan: &RecordScan) -> Result<u32> {
     let reserved: u32 = fs::read_to_string(dir().join("vault_next")).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(1);
     let mut i = scan.owned.keys().next_back().map_or(1, |i| i + 1).max(reserved).max(1);
@@ -1002,18 +1082,49 @@ fn next_vault_index(seed: &[u8; 32], scan: &RecordScan) -> Result<u32> {
     }
 }
 
+/// R1 to R3 for a recovered record: walk its vault records from the carrier in `txid` back to
+/// issuance and verify the result with the vault key as holder.
+async fn verify_recovered(col: &Collection, item: u32, txid: &str, vault: &FullViewingKey) -> Result<String> {
+    let mut c = connect().await?;
+    let (_, gh) = get_tx(&mut c, &col.genesis_txid).await?;
+    let mut ch = Chain::index(c, gh.ok_or_else(|| anyhow!("genesis tx unmined"))?).await?;
+    let set = issuance_set(&mut ch, col, &mut |_| {}).await?;
+    let (start, _) = ch.tx(txid).await?;
+    let pkg = carrier::verifier::walk_records(&mut ch, col, &set, item, &start, vault, &mut |_| {}).await?;
+    Ok(match verify_item(&mut ch, col, &set, &pkg, Some(vault), &mut |_| {}).await? {
+        Verdict::Held { hop, .. } => format!("verified HELD (R1 to R3, hop {hop})"),
+        Verdict::Spent { .. } => "verified, moved on since (SPENT)".into(),
+        Verdict::Burned { hop, why } => format!("BURNED at hop {hop} ({why})"),
+        Verdict::Unverified { .. } => "unverified".into(),
+    })
+}
+
 /// Seed-only recovery (marketplace SPEC 4.3): scan account 0 from BIRTHDAY (default: Ironwood
-/// activation) for account index records. Reports each item, whether its carrier is still
-/// unspent, and the next free vault index. Read-only.
+/// activation) for account index records, then verify each one in full (R1 to R3 through its
+/// vault records) against the public collection records in COLLECTIONS (comma-separated paths).
+/// A record that does not verify is reported, never shown as held. Read-only.
 async fn recover(mut c: Client) -> Result<()> {
     let seed = seed()?;
+    let cols: Vec<Collection> = match std::env::var("COLLECTIONS") {
+        Ok(v) => v.split(',').map(|p| read_json(std::path::Path::new(p))).collect::<Result<_>>()?,
+        Err(_) => vec![],
+    };
     let scan = scan_records(&mut c, &seed, env_u64("BIRTHDAY", IRONWOOD_ACTIVATION)?).await?;
     for (idx, recs) in &scan.owned {
         if recs.iter().any(|r| (r.0, r.1) != (recs[0].0, recs[0].1)) {
             println!("CONFLICT: vault index {idx} is named for different items; all of them listed below");
         }
-        for (coll, item, hop, txid, action, live) in recs {
-            println!("RECOVERED item #{item} of collection {}.. hop {hop}, vault index {idx}, carrier {}..:{action}, {}", &hex::encode(coll)[..16], &txid[..12], if *live { "unspent (held)" } else { "spent (moved on)" });
+        let vault = FullViewingKey::from(&spending_key(&seed, *idx));
+        for (coll, item, hop, txid, action, _) in recs {
+            let status = match cols.iter().find(|c| c.coll == hex::encode(coll)) {
+                None => "unverified: collection record not given (COLLECTIONS)".to_string(),
+                Some(col) => match verify_recovered(col, *item, txid, &vault).await {
+                    Ok(v) => v,
+                    Err(e) if format!("{e:#}").contains("no vault record") => format!("unverified: {e:#}"),
+                    Err(e) => format!("INVALID: {e:#}"),
+                },
+            };
+            println!("RECOVERED item #{item} of collection {}.. hop {hop}, vault index {idx}, carrier {}..:{action}: {status}", &hex::encode(coll)[..16], &txid[..12]);
         }
     }
     println!("next vault index: {}", next_vault_index(&seed, &scan)?);

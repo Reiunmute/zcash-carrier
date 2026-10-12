@@ -43,6 +43,7 @@ async fn payment_file(a: &[String]) -> Result<i32> {
         bail!("server copy of {txid} differs from {file}");
     }
     let h = h.ok_or_else(|| anyhow!("{txid} unmined"))?;
+    included_at(&mut c, txid, h).await?;
     println!("PAYMENT {paid} zats to the given key in {file} (txid {}.., identical to the server copy, mined at {h}; expected {expected})", &txid[..12]);
     Ok(if paid == expected { 0 } else { 2 })
 }
@@ -55,6 +56,7 @@ async fn payment(a: &[String]) -> Result<i32> {
     let mut c = connect().await?;
     let (tx, h) = get_tx(&mut c, txid).await?;
     let h = h.ok_or_else(|| anyhow!("{txid} unmined"))?;
+    included_at(&mut c, txid, h).await?;
     let paid = paid_to(tx.ironwood_bundle().ok_or_else(|| anyhow!("{txid} has no Ironwood bundle"))?, &fvk)?;
     println!("PAYMENT {paid} zats to the given key in {}..@{h} (expected {expected})", &txid[..12]);
     Ok(if paid == expected { 0 } else { 2 })
@@ -70,7 +72,11 @@ async fn run() -> Result<i32> {
     }
     if a.get(1).map(String::as_str) == Some("mined") {
         let txid = a.get(2).ok_or_else(|| anyhow!(USAGE))?;
-        let (_, h) = get_tx(&mut connect().await?, txid).await?;
+        let mut c = connect().await?;
+        let (_, h) = get_tx(&mut c, txid).await?;
+        if let Some(h) = h {
+            included_at(&mut c, txid, h).await?;
+        }
         println!("MINED {}", h.map(|h| h.to_string()).unwrap_or_else(|| "no".into()));
         return Ok(if h.is_some() { 0 } else { 2 });
     }

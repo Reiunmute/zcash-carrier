@@ -164,15 +164,33 @@ fn disclose_msg(t: &[u8; 32], payload: &[u8]) -> Vec<u8> {
 /// Seller: the signed, encrypted disclosure for the lease holder. Plaintext: 64-byte vault
 /// signature over `"CarrierDisclosureV1" || T || BLAKE2b-256(payload)`, then the payload.
 pub fn seal_disclosure<R: RngCore + CryptoRng>(d: &Disclosure, vault_sak: &SpendAuthorizingKey, buyer_key: &[u8; 32], seq: u32, t: &[u8; 32], rng: &mut R) -> Result<Vec<u8>> {
+    Ok(seal_disclosure_with_sig(d, vault_sak, buyer_key, seq, t, rng)?.0)
+}
+
+/// As `seal_disclosure`, also returning the vault signature (the seller keeps it to check lease
+/// renewals, see `renew_token`).
+pub fn seal_disclosure_with_sig<R: RngCore + CryptoRng>(d: &Disclosure, vault_sak: &SpendAuthorizingKey, buyer_key: &[u8; 32], seq: u32, t: &[u8; 32], rng: &mut R) -> Result<(Vec<u8>, [u8; 64])> {
     let payload = d.encode();
     let sig = crate::keys::vault_sign(vault_sak, &disclose_msg(t, &payload), &mut *rng);
-    seal(buyer_key, TYPE_DISCLOSURE, SELLER_TO_BUYER, seq, t, &[&sig[..], &payload].concat(), rng)
+    Ok((seal(buyer_key, TYPE_DISCLOSURE, SELLER_TO_BUYER, seq, t, &[&sig[..], &payload].concat(), rng)?, sig))
+}
+
+/// Lease renewal (X6): `BLAKE2b-256(personal "CarrierLeaseRnw1", sig || T)`. Only the seller and
+/// the lease holder know the disclosure's vault signature (it travels encrypted), so neither the
+/// relay nor an earlier buyer of the same listing can renew someone else's lease.
+pub fn renew_token(sig: &[u8; 64], t: &[u8; 32]) -> [u8; 32] {
+    blake2b32(b"CarrierLeaseRnw1", &[&sig[..], t].concat())
 }
 
 /// Buyer: opens a disclosure and checks the vault signature against the disclosed FVK. `t` must
 /// be the buyer's own transcript (its key and nonce), which is what catches a relay that swapped
 /// keys. Chain checks (record walk, R1 to R3) come next and are the caller's.
 pub fn open_disclosure(buyer_sk: &[u8; 32], seq: u32, t: &[u8; 32], msg: &[u8]) -> Result<Disclosure> {
+    Ok(open_disclosure_with_sig(buyer_sk, seq, t, msg)?.0)
+}
+
+/// As `open_disclosure`, also returning the verified vault signature (for `renew_token`).
+pub fn open_disclosure_with_sig(buyer_sk: &[u8; 32], seq: u32, t: &[u8; 32], msg: &[u8]) -> Result<(Disclosure, [u8; 64])> {
     let pt = open(buyer_sk, TYPE_DISCLOSURE, SELLER_TO_BUYER, seq, t, msg)?;
     if pt.len() < 64 {
         bail!("disclosure too short");
@@ -180,8 +198,9 @@ pub fn open_disclosure(buyer_sk: &[u8; 32], seq: u32, t: &[u8; 32], msg: &[u8]) 
     let (sig, payload) = pt.split_at(64);
     let d = Disclosure::decode(payload)?;
     let fvk = FullViewingKey::from_bytes(&d.vault_fvk).ok_or_else(|| anyhow!("bad vault FVK"))?;
-    crate::keys::vault_verify(&fvk, &disclose_msg(t, payload), sig.try_into()?).map_err(|_| anyhow!("disclosure signature does not verify for this transcript"))?;
-    Ok(d)
+    let sig: [u8; 64] = sig.try_into()?;
+    crate::keys::vault_verify(&fvk, &disclose_msg(t, payload), &sig).map_err(|_| anyhow!("disclosure signature does not verify for this transcript"))?;
+    Ok((d, sig))
 }
 
 /// Proof of work on an intent: `BLAKE2b-256(personal "CarrierIntentPoW", T || LE64(stamp))` has at
@@ -303,6 +322,11 @@ mod tests {
         let pt = open(&relay_sk, TYPE_DISCLOSURE, SELLER_TO_BUYER, 0, &t_relay, &to_relay).unwrap();
         let forwarded = seal(&buyer_pk, TYPE_DISCLOSURE, SELLER_TO_BUYER, 0, &t, &pt, &mut OsRng).unwrap();
         assert!(open_disclosure(&buyer_sk, 0, &t, &forwarded).is_err());
+        // Renewal: the buyer derives the same token as the seller; another transcript does not.
+        let (m3, sig) = seal_disclosure_with_sig(&d, &sak, &buyer_pk, 0, &t, &mut OsRng).unwrap();
+        let (_, sig_b) = open_disclosure_with_sig(&buyer_sk, 0, &t, &m3).unwrap();
+        assert_eq!(renew_token(&sig, &t), renew_token(&sig_b, &t));
+        assert_ne!(renew_token(&sig, &t), renew_token(&sig, &t_relay));
         // A signature from another vault key fails too.
         let other_sak = SpendAuthorizingKey::from(&spending_key(&[5; 32], 2));
         let m2 = seal_disclosure(&d, &other_sak, &buyer_pk, 0, &t, &mut OsRng).unwrap();

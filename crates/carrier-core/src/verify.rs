@@ -96,7 +96,7 @@ pub async fn issuance_set<C: ChainSource>(ch: &mut C, col: &Collection, log: &mu
         if !sm.art.is_empty() || sm.hop != step || (sm.kind == K_SEQ && sm.num != 0) {
             bail!("R1: non-canonical sequence memo in {txid} (step {}, expected {step}, num {}, payload {}B)", sm.hop, sm.num, sm.art.len());
         }
-        step = step.checked_add(1).ok_or_else(|| anyhow!("R1: sequence too long"))?;
+        step = step.checked_add(1).filter(|s| (*s as usize) <= MAX_WALK_HOPS).ok_or_else(|| anyhow!("R1: sequence longer than {MAX_WALK_HOPS} steps"))?;
         if let Some(r) = expect_rho {
             if !(seq.note.rho().to_bytes() == r && seq.spent_nf == r) {
                 bail!("R1: sequence successor in {txid} not bound in the same action");
@@ -157,6 +157,9 @@ pub enum Verdict {
 pub async fn verify_item<C: ChainSource>(ch: &mut C, col: &Collection, set: &IssuanceSet, pkg: &Package, holder: Option<&FullViewingKey>, log: &mut dyn FnMut(String)) -> Result<Verdict> {
     let coll = coll_of(col)?;
     let issued = set.items.iter().find(|i| i.num == pkg.item).ok_or_else(|| anyhow!("item #{} not in the issuance set", pkg.item))?;
+    if pkg.hops.len() > MAX_WALK_HOPS {
+        bail!("package has more than {MAX_WALK_HOPS} hops");
+    }
     let mut cur_cmx = issued.cmx;
     // Where the current carrier was created: (txid, height, action).
     let mut at = (issued.txid.clone(), issued.height, issued.action);
@@ -217,6 +220,11 @@ pub async fn verify_item<C: ChainSource>(ch: &mut C, col: &Collection, set: &Iss
 /// OPEN_ISSUES #7: a successor is a valid carrier only if it has value 0 and a HOP memo for the
 /// same collection and item, with the hop counter one more than the note it replaces.
 pub fn successor_valid(f: &Found, coll: &[u8; 32], item: u32, hop: u32) -> std::result::Result<(), String> {
+    // The Action circuit binds rho_new = nf_old; checked here too, so unproved data served by a
+    // dishonest lightwalletd cannot pass as a successor (defense in depth).
+    if f.note.rho().to_bytes() != f.spent_nf {
+        return Err("successor is not bound to the spend in its Action (rho != nullifier)".into());
+    }
     let v = f.note.value().inner();
     if v != 0 {
         return Err(format!("value {v} != 0"));
@@ -256,6 +264,9 @@ pub async fn walk_records<C: ChainSource>(ch: &mut C, col: &Collection, set: &Is
     let (mut hops, mut seen, mut bytes) = (vec![], std::collections::HashSet::new(), 0usize);
     loop {
         let m = is_hop(&cur).ok_or_else(|| anyhow!("record walk: a pointer names a note that is not a HOP carrier of item #{item}"))?;
+        if cur.note.rho().to_bytes() != cur.spent_nf {
+            bail!("hop {}: carrier is not bound to the spend in its Action (rho != nullifier)", m.hop);
+        }
         if m.art.is_empty() {
             bail!("hop {}: no vault record (made before records existed); verify with the provenance package", m.hop);
         }

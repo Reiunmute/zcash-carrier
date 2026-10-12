@@ -7,7 +7,8 @@
 # at ORDERBOOK (default http://127.0.0.1:8787). Roles follow the holdings after the P4 sale: the
 # seller is the buyer seed's vault 17 (sealed-collection item #1, hop 1), the buyer is the main
 # seed (OFF=30, new vault acct6 = index 36). The disclosure carries no package (RECORDS_ONLY=1),
-# so the buyer verifies from the vault record alone.
+# so the buyer verifies from the vault record alone. The listing is a free transfer (price 0,
+# SPEC D4); the buyer renews its lease once through the server (type 1 message).
 # Seller files: state/buyer/c2/{collection.json (public record), package_item1_hop1.json}.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -35,13 +36,23 @@ PY
 }
 py() { python3 -c "$@"; }
 
-echo "== seller lists; posts the public listing with a delete token hash"
+# pow <hex32>: a stamp with POW_BITS (20) leading zero bits, as channel::pow_ok
+pow() { py 'import hashlib,sys
+t=bytes.fromhex(sys.argv[1]); s=0
+while True:
+    h=hashlib.blake2b(t+s.to_bytes(8,"little"),digest_size=32,person=b"CarrierIntentPoW").digest()
+    if h[0]==0 and h[1]==0 and h[2]<16: print(s); break
+    s+=1' "$1"; }
+# tok <file> <personal>: a fresh 32-byte token in <file>; prints its hash
+tok() { head -c 32 /dev/urandom | xxd -p -c 64 > "$1"; py 'import hashlib,sys; print(hashlib.blake2b(bytes.fromhex(open(sys.argv[1]).read().strip()),digest_size=32,person=sys.argv[2].encode()).hexdigest())' "$1" "$2"; }
+
+echo "== seller lists; posts the public listing with a delete token hash and a proof of work"
 seller PACKAGE=package_item1_hop1.json $C sale-list | tail -1
-head -c 32 /dev/urandom | xxd -p -c 64 > "$XS/delete_token"
-py 'import json,sys,hashlib
-l=json.load(open(sys.argv[1])); tok=bytes.fromhex(open(sys.argv[2]).read().strip())
-l["delete_token_hash"]=hashlib.blake2b(tok,digest_size=32,person=b"CarrierListDel01").hexdigest()
-json.dump(l,open(sys.argv[3],"w"))' "$XS/listing.json" "$XS/delete_token" "$XS/post.json"
+DH=$(tok "$XS/delete_token" CarrierListDel01)
+LID=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["listing_id"])' "$XS/listing.json")
+py 'import json,sys
+l=json.load(open(sys.argv[1])); l["delete_token_hash"]=sys.argv[2]; l["pow"]=int(sys.argv[3])
+json.dump(l,open(sys.argv[4],"w"))' "$XS/listing.json" "$DH" "$(pow "$LID")" "$XS/post.json"
 ob POST /listings "$XS/post.json"
 ID=$(py 'import json,sys; print(json.load(open(sys.argv[1]))["listing_id"])' "$XS/listing.json")
 echo "listed $ID"
@@ -49,20 +60,37 @@ echo "listed $ID"
 echo "== buyer reads the listing from the order book and posts an intent"
 ob GET "/listings/$ID" > "$XB/listing.json"
 buyer $C sale-intent | tail -1
-T=$(ob POST "/listings/$ID/intents" "$XB/intent.json" | py 'import json,sys; print(json.load(sys.stdin)["transcript"])')
+WH=$(tok "$XB/write_token" CarrierMsgWrite1)
+py 'import json,sys; i=json.load(open(sys.argv[1])); i["write_token_hash"]=sys.argv[2]; json.dump(i,open(sys.argv[3],"w"))' "$XB/intent.json" "$WH" "$XB/intent_post.json"
+T=$(ob POST "/listings/$ID/intents" "$XB/intent_post.json" | py 'import json,sys; print(json.load(sys.stdin)["transcript"])')
 echo "server transcript ${T:0:12}.."
 
 echo "== seller reads the intent, grants the lease, posts the disclosure"
 ob GET "/listings/$ID/intents" | py 'import json,sys; i=json.load(sys.stdin)[0]; t=i.pop("transcript"); i["listing_id"]=sys.argv[1]; json.dump(i,open(sys.argv[2],"w")); print("intent transcript", t[:12]+"..")' "$ID" "$XS/intent.json"
 seller RECORDS_ONLY=1 $C sale-disclose | tail -1
-msg() { py 'import json,sys; json.dump({"transcript":sys.argv[1],"kind":int(sys.argv[2]),"direction":int(sys.argv[3]),"seq":0,"body":open(sys.argv[4],"rb").read().hex()},open(sys.argv[5],"w"))' "$@"; }
-msg "$T" 2 1 "$XS/disclosure.bin" "$XS/m2.json"
+# msg <transcript> <kind> <direction> <seq> <body file> <token file> <out>
+msg() { py 'import json,sys; json.dump({"transcript":sys.argv[1],"kind":int(sys.argv[2]),"direction":int(sys.argv[3]),"seq":int(sys.argv[4]),"body":open(sys.argv[5],"rb").read().hex(),"token":open(sys.argv[6]).read().strip()},open(sys.argv[7],"w"))' "$@"; }
+msg "$T" 2 1 0 "$XS/disclosure.bin" "$XS/delete_token" "$XS/m2.json"
 ob POST /messages "$XS/m2.json"
+echo "== a third party cannot write under the buyer's transcript"
+msg "$T" 3 0 0 "$XS/disclosure.bin" "$XS/delete_token" "$XS/junk.json"
+if ob POST /messages "$XS/junk.json" 2>"$WORK/junk.err"; then echo "FAIL: junk accepted"; exit 1; fi
+cat "$WORK/junk.err"
 
 echo "== buyer fetches the disclosure, verifies, builds, posts the encrypted PCZT"
 ob GET "/messages?transcript=$T&kind=2&direction=1" | py 'import json,sys; m=json.load(sys.stdin); open(sys.argv[1],"wb").write(bytes.fromhex(m[0]["body"]))' "$XB/disclosure.bin"
+
+echo "== buyer renews its lease through the server; the seller extends it; a replay is refused"
+buyer $C sale-renew | tail -1
+py 'import json,sys; r=json.load(open(sys.argv[1])); open(sys.argv[2],"wb").write(bytes.fromhex(r["body"]))' "$XB/renew.json" "$XB/renew.bin"
+msg "$T" 1 0 1 "$XB/renew.bin" "$XB/write_token" "$XB/m1.json"
+ob POST /messages "$XB/m1.json"
+ob GET "/messages?transcript=$T&kind=1&direction=0" | py 'import json,sys; m=json.load(sys.stdin)[0]; json.dump({"seq":m["seq"],"body":m["body"]},open(sys.argv[1],"w"))' "$XS/renew.json"
+seller NOW=$(( $(date +%s) + 1500 )) $C sale-extend | tail -1
+if seller $C sale-extend >"$WORK/replay.out" 2>&1; then echo "FAIL: replayed renewal accepted"; exit 1; fi
+tail -1 "$WORK/replay.out"
 buyer FUND_TX=$FUND BUYER_VAULT_ACCT=6 COLLECTION=evidence/testnet-2026-10-02/collection_sealed.json $C sale-buy | grep -E 'disclosure opened|record walk|anchor at|verified from chain|SALE-BUY'
-msg "$T" 3 0 "$XB/sale.pczt" "$XB/m3.json"
+msg "$T" 3 0 0 "$XB/sale.pczt" "$XB/write_token" "$XB/m3.json"
 ob POST /messages "$XB/m3.json"
 
 echo "== seller fetches the PCZT and accepts (DRY)"
