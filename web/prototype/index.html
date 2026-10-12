@@ -3,27 +3,32 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Zarrier: shielded collectibles (testnet prototype)</title>
-<link rel="stylesheet" href="styles.css?v=5">
+<title>Zarrier: shielded collectibles on Zcash (testnet)</title>
+<link rel="icon" href="mark.svg">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
+<canvas id="stars" aria-hidden="true"></canvas>
+<div class="scan" aria-hidden="true"></div>
 <header class="top"><div class="wrap">
-  <a class="mark" href="#/">Zarrier</a>
-  <input class="search" type="search" placeholder="Search collections and items" aria-label="Search">
-  <nav class="nav"><a href="#/" data-nav="explore">Explore</a><a href="#/account" data-nav="account">Account</a></nav>
+  <a class="mark" href="#/" aria-label="Zarrier home"><img src="mark.svg" alt=""><span>ZARRIER</span></a>
+  <nav class="nav"><a href="#/" data-nav="explore">EXPLORE</a><a href="#/account" data-nav="account">MY ITEMS</a></nav>
   <span class="spacer"></span>
-  <span class="meta" id="who"></span>
-  <span class="net meta" title="Zcash testnet, Ironwood pool">Testnet</span>
-  <button class="btn primary" id="connect">Connect</button>
+  <span class="hud" id="hud-tip" title="Zcash testnet block height"><span class="k">BLOCK</span><span class="v" id="tip">4,466,500</span></span>
+  <span class="hud" id="hud-bal" hidden><span class="k">CREDIT</span><span class="v" id="bal">0</span></span>
+  <button class="btn coin" id="connect">INSERT COIN</button>
 </div></header>
 <main id="app"></main>
-<footer class="foot"><div class="wrap meta">
-  <span>Zcash testnet only. TAZ has no value. Nothing here is for sale for real money.</span>
-  <span>Prototype, 2026-10-02</span>
+<footer class="foot"><div class="wrap">
+  <span>Zcash testnet only. TAZ has no value.</span>
+  <span>Checks run for real against testnet. Wallet, deposits, proving and broadcast are simulated in this demo.</span>
+  <span><button class="link" id="sound" aria-pressed="false">SOUND OFF</button> · <button class="link" id="reset">RESET DEMO</button></span>
 </div></footer>
 <div class="scrim" id="scrim" role="dialog" aria-modal="true"><div class="modal" id="modal"></div></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
-<script src="app.js?v=5"></script>
-<script type="module" src="verify.mjs?v=5"></script>
+<div class="banner" id="banner" aria-live="assertive"></div>
+<canvas id="burst" aria-hidden="true"></canvas>
+<script src="app.js?v=6"></script>
+<script type="module" src="verify.mjs?v=6"></script>
 </body>
 </html>

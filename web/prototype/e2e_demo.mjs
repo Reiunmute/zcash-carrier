@@ -1,5 +1,6 @@
-// Playwright check of the prototype with real mouse clicks (SPEC 11 item 10): one whole sale on
-// demo.html, both sides, plus layout checks at several widths. Screenshots go to .harness/runs/.
+// Playwright check of the marketplace with real mouse clicks: one site, two players.
+// Player 1 lists an item; Player 2, in a second tab of the same browser, connects, buys, runs out
+// of credit, deposits and finishes. Plus layout checks at several widths. Screenshots go to .harness/runs/.
 // usage: node web/prototype/e2e_demo.mjs [base URL, default http://127.0.0.1:8790]
 // Needs a running server (python3 scripts/serve_web.py) and Playwright; PW_BASE may name a
 // directory whose node_modules has playwright (for example an npx cache entry).
@@ -19,76 +20,98 @@ const browser = await chromium.launch();
 const errors = [];
 const watch = (page) => page.on('pageerror', (e) => errors.push(String(e)));
 
-// 1. Layout: nothing in the top bar spills over, at phone, half-screen, tablet and desktop widths.
+// 1. Layout: nothing spills over at phone, half-screen, tablet and desktop widths.
 for (const width of [375, 512, 800, 1280]) {
-  const page = await browser.newPage({ viewport: { width, height: 800 } });
+  const ctx = await browser.newContext({ viewport: { width, height: 800 } });
+  const page = await ctx.newPage();
   watch(page);
-  for (const route of ['#/', ITEM, '#/account']) {
-    await page.goto(`${BASE}/index.html?as=buyer${route}`);
+  for (const route of ['#/', ITEM, '#/account', '#/collection/5fc17ef389fdae9b23142e4218153b17e74ae859d344667351a32e03d74e881f']) {
+    await page.goto(`${BASE}/index.html${route}`);
     await page.waitForSelector('#app *');
+    if (route === '#/account' && !(await page.locator('.acct').count())) {
+      await page.locator('#app [data-open="connect"]').click();
+      await page.locator('[data-pick="p1"]').click();
+    }
     const spill = await page.evaluate(() => {
       const bad = [];
-      for (const el of document.querySelectorAll('.top .wrap > *, .item .side > *, .acct *, .stats')) {
+      for (const el of document.querySelectorAll('.top .wrap > *, .item .side > *, .acct *, .stats, .hero *, .score *, .grid > *')) {
         const r = el.getBoundingClientRect();
         if (r.width && (r.right > innerWidth + 1 || r.left < -1)) bad.push(el.className || el.id || el.tagName);
       }
       return { bad, scroll: document.documentElement.scrollWidth > innerWidth + 1 };
     });
-    check(!spill.scroll && !spill.bad.length, `${width}px ${route}: no horizontal overflow${spill.bad.length ? ' (' + spill.bad.join(', ') + ')' : ''}`);
+    check(!spill.scroll && !spill.bad.length, `${width}px ${route.slice(0, 20)}: no horizontal overflow${spill.bad.length ? ' (' + spill.bad.slice(0, 5).join(', ') + ')' : ''}`);
   }
+  await page.goto(`${BASE}/index.html#/`);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${OUT}/home-${width}.png`, fullPage: true });
+  await page.goto(`${BASE}/index.html${ITEM}`);
+  await page.waitForTimeout(300);
   await page.screenshot({ path: `${OUT}/item-${width}.png`, fullPage: true });
-  await page.close();
+  await ctx.close();
 }
 
-// 2. One sale, both sides, with real clicks inside the two frames of demo.html.
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-watch(page);
-await page.goto(`${BASE}/demo.html`);
-await page.evaluate(() => localStorage.removeItem('zarrier-demo-v1'));
-await page.reload();
-const seller = page.frameLocator('#seller'), buyer = page.frameLocator('#buyer');
+// 2. One sale on one site: two tabs, two players.
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const a = await ctx.newPage(); watch(a);
+await a.goto(`${BASE}/index.html#/`);
+await a.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+await a.reload();
+await a.screenshot({ path: `${OUT}/0-home.png` });
 
-await seller.locator('#connect').click();
-await seller.locator('[data-do="connect"]').click();
-await seller.locator('#modal [data-close].btn').click();
-await seller.locator('.card', { hasText: '#1' }).first().click();
-await seller.locator('[data-open="list"]').click();
-await seller.locator('#lp').fill('0.0001');
-await seller.locator('[data-do="list"]').click();
-await seller.locator('pre.json').waitFor({ timeout: 60000 });
-const pub = JSON.parse(await seller.locator('pre.json').textContent());
+// Player 1 connects and lists Masks, sealed #1.
+await a.locator('#connect').click();
+await a.locator('[data-pick="p1"]').click();
+await a.locator('.nav a', { hasText: 'MY ITEMS' }).click();
+await a.locator('.card', { hasText: '#1' }).first().click();
+await a.locator('[data-open="list"]').click();
+await a.locator('#lp').fill('0.0001');
+await a.locator('[data-do="list"]').click();
+await a.locator('pre.json').waitFor({ timeout: 90000 });
+const pub = JSON.parse(await a.locator('pre.json').textContent());
 check(Object.keys(pub).sort().join() === 'coll,expiry_height,listing_id,num,price,seller_channel_key', 'public listing has exactly the six SPEC 3.1 fields');
-check((await seller.locator('#modal .steps li').first().textContent()).includes('HELD'), 'seller holder check ran from chain (HELD)');
-await page.screenshot({ path: `${OUT}/1-listed.png` });
-await seller.locator('#modal [data-close].btn').click();
+check((await a.locator('#modal .steps li').first().textContent()).includes('HELD'), 'holder check ran from chain before listing (HELD)');
+await a.screenshot({ path: `${OUT}/1-listed.png` });
+await a.locator('#modal [data-close].btn').click();
 
-await buyer.locator('#connect').click();
-await buyer.locator('[data-do="connect"]').click();
-await buyer.locator('#modal [data-close].btn').click();
-await buyer.locator('a.btn', { hasText: 'Explore collections' }).click();
-await buyer.locator('.card', { hasText: '#1' }).first().click();
-await buyer.locator('[data-open="buy"]').click();
-await buyer.locator('[data-do="reserve"]').click();
-await buyer.locator('[data-do="pay"]').waitFor({ timeout: 60000 });
-check((await buyer.locator('#modal .steps').textContent()).includes('HELD'), 'buyer verified the item from chain (HELD) before paying');
-await page.screenshot({ path: `${OUT}/2-verified.png` });
-await buyer.locator('[data-do="pay"]').click();
-await buyer.locator('#modal', { hasText: 'You got it.' }).waitFor({ timeout: 60000 });
-await page.screenshot({ path: `${OUT}/3-bought.png` });
-await buyer.locator('#modal a', { hasText: 'View in Account' }).click();
-await buyer.locator('.card', { hasText: 'Yours' }).first().waitFor({ timeout: 5000 }).catch(() => {});
-check(await buyer.locator('.card', { hasText: 'Yours' }).count() === 1, 'buyer account shows the item');
-await seller.locator('.nav a', { hasText: 'Account' }).click();
-check((await seller.locator('.price-big').textContent()).trim() === '0.0001 TAZ', 'seller balance shows the payment');
-await page.screenshot({ path: `${OUT}/4-after.png` });
+// Player 2 opens the same site in another tab.
+const b = await ctx.newPage(); watch(b);
+await b.setViewportSize({ width: 1440, height: 900 });
+await b.goto(`${BASE}/index.html#/`);
+check(await b.locator('.card', { hasText: '0.0001 TAZ' }).count() >= 1, 'the listing shows on the home page for everyone');
+await b.locator('.card', { hasText: '0.0001 TAZ' }).first().click();
+await b.locator('[data-open="buy"]').click();
+await b.locator('#modal [data-open="connect"]').click();
+await b.locator('[data-pick="p2"]').click();
+check(await b.locator('#modal [data-do="reserve"]').count() === 1, 'connecting returns to the purchase');
+await b.locator('[data-do="reserve"]').click();
+await b.locator('#modal [data-open="deposit"]').waitFor({ timeout: 90000 });
+check((await b.locator('#modal .steps').textContent()).includes('HELD'), 'buyer verified the item from chain (HELD) before paying');
+await b.screenshot({ path: `${OUT}/2-verified-needs-funds.png` });
+await b.locator('#modal [data-open="deposit"]').click();
+await b.locator('[data-do="deposit"]').click();
+await b.locator('.success-line').waitFor({ timeout: 10000 });
+await b.screenshot({ path: `${OUT}/3-deposited.png` });
+await b.locator('#modal [data-close].btn').click();
+await b.locator('#modal', { hasText: 'YOU GOT IT.' }).waitFor({ timeout: 60000 });
+await b.waitForTimeout(300);
+await b.screenshot({ path: `${OUT}/4-bought.png` });
+check((await b.locator('#bal').textContent()).trim() === '0.00075 TAZ', 'buyer credit: 0.001 deposited minus 0.0001 price minus 0.00015 fee');
+await b.locator('#modal a', { hasText: 'VIEW MY ITEMS' }).click();
+await b.locator('.card', { hasText: 'YOURS' }).first().waitFor({ timeout: 5000 }).catch(() => {});
+check(await b.locator('.card', { hasText: 'YOURS' }).count() === 1, 'buyer now holds the item');
 
-// 3. Narrow screen: one side at a time, the switch works.
-await page.setViewportSize({ width: 800, height: 800 });
-await page.reload();
-check(await page.locator('#panes').getAttribute('data-show') === 'seller', 'narrow demo starts with one side');
-await page.locator('button[data-show="buyer"]').click();
-check(await page.locator('#buyer').isVisible() && !(await page.locator('#seller').isVisible()), 'switch shows the buyer side');
-await page.screenshot({ path: `${OUT}/5-narrow.png` });
+// Back in Player 1's tab: the sale arrived through the shared market.
+await a.bringToFront();
+await a.locator('.nav a', { hasText: 'MY ITEMS' }).click();
+check((await a.locator('.price-big').first().textContent()).trim() === '0.0001 TAZ', 'seller credit shows the payment');
+check(await a.locator('.card', { hasText: '#1' }).count() === 0 && await a.locator('.card', { hasText: '#2' }).count() === 1, 'seller keeps #2 only');
+await a.screenshot({ path: `${OUT}/5-seller-after.png` });
+
+// One tab can switch between players too.
+await a.locator('#connect').click();
+await a.locator('[data-pick="p2"]').click();
+check((await a.locator('.price-big').first().textContent()).trim() === '0.00075 TAZ', 'switching account in one tab shows that player');
 
 check(!errors.length, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 await browser.close();

@@ -1,7 +1,8 @@
-// Zarrier marketplace prototype. Layout after OpenSea,
-// brand tokens (docs/marketplace/DESIGN.md). Routes follow SPEC section 7.
-// Pages are built as HTML strings from the constant mock data below (labels go through esc).
-// The real app renders chain and order-book data, which is untrusted: build DOM nodes there.
+// Zarrier marketplace, testnet demo. One site for everyone: connect a wallet account, deposit,
+// list, buy. Layout after OpenSea, arcade look after the Zarrier brand (docs/marketplace/DESIGN.md).
+// Real: the "holds it" checks (rules R1 to R3 in wasm over Zcash testnet data, verify.mjs).
+// Simulated: the wallet, deposits, proving, broadcast and mining. Nothing is sent anywhere.
+// Pages are HTML strings built from the constant data below; labels go through esc.
 "use strict";
 
 // Artwork payloads (v0: 48-byte palette + 338 bytes of 4-bit pixels, 26 by 26), the same bytes the
@@ -40,29 +41,26 @@ const COLLECTIONS = [
     ],
   },
 ];
-
-
-// ---------- demo store: both screens of demo.html share it through localStorage ----------
-// Real: the "holds it" checks (R1 to R3 in wasm over testnet chain data, verify.mjs).
-// Simulated: payment, deposit, proving, broadcast, mining. Nothing is sent anywhere.
 const SEALED = COLLECTIONS[0].coll;
-const STORE = "zarrier-demo-v1", SEEN = "zarrier-demo-seller-seen";
-const ROLE = new URLSearchParams(location.search).get("as") === "seller" ? "seller" : "buyer";
 const FEE = 15000; // network fee for a 3-Action sale, paid by the buyer
-document.title = `Zarrier (${ROLE}, testnet demo)`;
-const fresh = () => ({ listings: {}, sale: null, held: { seller: [`${SEALED}/1`, `${SEALED}/2`], buyer: [] }, bal: { seller: 0, buyer: 0 }, connected: {}, feed: [] });
+
+// ---------- shared market state (localStorage: every tab of this browser sees the same market) ----------
+// The active wallet account is per tab (sessionStorage), so two windows can be two different people.
+const STORE = "zarrier-market-v2", ACTIVE = "zarrier-active-account";
+const TAB = Math.random().toString(36).slice(2); // the tab that reserved drives the sale
+const newAccount = (n) => ({ id: `p${n}`, n, addr: `utest1${hex(3)}…${hex(2)}`, bal: 0 });
+function fresh() {
+  const p1 = { id: "p1", n: 1, addr: "utest1qz7…a7c2", bal: 0 }, p2 = { id: "p2", n: 2, addr: "utest1xk4…k3f9", bal: 0 };
+  return { accounts: [p1, p2], held: { p1: [`${SEALED}/1`, `${SEALED}/2`], p2: [] }, listings: {}, sale: null, check: {}, feed: [] };
+}
 const load = () => { try { return JSON.parse(localStorage.getItem(STORE)) || fresh(); } catch { return fresh(); } };
 let S = load();
-function save(mut) {
-  S = load();
-  mut(S);
-  localStorage.setItem(STORE, JSON.stringify(S));
-  changed();
-}
-function feed(s, who, text) { s.feed.push({ who, text, at: Date.now() }); }
+function save(mut) { S = load(); mut(S); localStorage.setItem(STORE, JSON.stringify(S)); changed(); }
+function feed(s, who, text, kind = "") { s.feed.push({ who, text, kind, at: Date.now() }); }
 window.addEventListener("storage", (e) => { if (e.key === STORE) { S = load(); changed(); } });
-if (ROLE === "seller") { const beat = () => localStorage.setItem(SEEN, String(Date.now())); beat(); setInterval(beat, 1500); }
-const sellerTabOpen = () => Date.now() - Number(localStorage.getItem(SEEN) || 0) < 5000;
+const me = () => S.accounts.find((a) => a.id === sessionStorage.getItem(ACTIVE)) || null;
+const acct = (id) => S.accounts.find((a) => a.id === id);
+const pname = (a) => `PLAYER ${a.n}`;
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -74,10 +72,12 @@ const left = (h) => { const s = (h - TIP) * BLOCK_SECS; return s <= 0 ? "ended" 
 const findColl = (c) => COLLECTIONS.find((x) => x.coll.startsWith(c));
 const keyOf = (c, it) => `${c.coll}/${it.num}`;
 const listing = (c, it) => S.listings[keyOf(c, it)];
-const mine = (c, it) => S.held[ROLE].includes(keyOf(c, it));
+const holderOf = (k) => Object.keys(S.held).find((id) => S.held[id].includes(k)) || null;
+const mine = (c, it) => !!me() && holderOf(keyOf(c, it)) === me().id;
 const floor = (c) => { const p = c.items.map((i) => listing(c, i)).filter(Boolean).map((l) => l.price); return p.length ? Math.min(...p) : null; };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const hex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
+function hex(n) { return [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join(""); }
+const fx = matchMedia("(prefers-reduced-motion: reduce)").matches ? null : true;
 
 function artCanvas(idx, label) {
   const b = Uint8Array.from(ART[idx].match(/../g), (x) => parseInt(x, 16));
@@ -98,47 +98,127 @@ const art = (idx, label) => `<i data-art="${idx}" data-label="${esc(label)}"></i
 const hydrate = (root) => root.querySelectorAll("i[data-art]").forEach((el) => el.replaceWith(artCanvas(+el.dataset.art, el.dataset.label)));
 
 // Real verification through verify.mjs (wasm). Resolves to the verdict object.
-async function chainCheck(c, it, withKey, progress) {
+async function chainCheck(c, it, progress) {
   if (!window.zarrierVerify) await new Promise((r) => window.addEventListener("zarrier-verify-ready", r, { once: true }));
   return window.zarrierVerify({
     collection: { network: "test", coll: c.coll, issuer_fvk: c.issuer, genesis_txid: c.genesis },
-    item: it.num,
-    pkg: withKey ? null : { item: it.num, label: "issuance only", hops: [] },
-    walk: withKey ? it.chain.walk : null,
-    holder: withKey ? it.chain.holder : null,
-    from: c.genesisH,
+    item: it.num, pkg: null, walk: it.chain.walk, holder: it.chain.holder, from: c.genesisH,
   }, progress);
 }
+async function holdsIt(c, it, progress) {
+  if (it.chain) return chainCheck(c, it, progress);
+  await wait(1400);
+  return { verdict: "HELD", hop: it.hop, items: c.items.length, sealed: c.sealed, simulated: true };
+}
 
+// ---------- arcade effects: 8-bit sound (off by default), banners, pixel bursts ----------
+let audio = null, soundOn = localStorage.getItem("zarrier-sound") === "on";
+function beep(kind) {
+  if (!soundOn) return;
+  audio ||= new AudioContext();
+  const seq = { click: [[660, 0.04]], ok: [[523, 0.07], [784, 0.09]], coin: [[988, 0.06], [1319, 0.18]],
+    win: [[523, 0.09], [659, 0.09], [784, 0.09], [1047, 0.25]], bad: [[220, 0.2]] }[kind] || [[440, 0.05]];
+  let t = audio.currentTime;
+  for (const [f, d] of seq) {
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type = "square"; o.frequency.value = f; g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + d); t += d;
+  }
+}
+function banner(text, sub = "") {
+  if (modal) return; // an open dialog already shows the state; the strip would cross it
+  const b = $("#banner");
+  b.innerHTML = `<div class="b1">${esc(text)}</div>${sub ? `<div class="b2">${esc(sub)}</div>` : ""}`;
+  b.classList.remove("show"); void b.offsetWidth; b.classList.add("show");
+}
+function burst(x = innerWidth / 2, y = innerHeight / 2) {
+  if (!fx) return;
+  const cv = $("#burst"), ctx = cv.getContext("2d");
+  // With a dialog open the particles fly behind it, so they never cover its text.
+  if (modal) $("#scrim").prepend(cv); else document.body.append(cv);
+  cv.width = innerWidth; cv.height = innerHeight;
+  const cols = ["#F4B728", "#F4EFE2", "#F4B728", "#E8432E", "#5BC0EB"];
+  const ps = Array.from({ length: 90 }, () => { const a = Math.random() * Math.PI * 2, v = 2 + Math.random() * 7;
+    return { x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, s: 4 + (Math.random() * 3 | 0) * 2, c: cols[Math.random() * cols.length | 0], life: 50 + Math.random() * 40 }; });
+  let f = 0;
+  (function tick() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    for (const p of ps) { if (f > p.life) continue; p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.vx *= 0.985; ctx.fillStyle = p.c; ctx.fillRect(p.x | 0, p.y | 0, p.s, p.s); }
+    if (++f < 95) requestAnimationFrame(tick); else ctx.clearRect(0, 0, cv.width, cv.height);
+  })();
+}
+
+// Starfield: three layers drifting down, like the attract screen of an old shooter.
+(function stars() {
+  const cv = $("#stars"), ctx = cv.getContext("2d"), cols = ["#F4EFE2", "#F4B728", "#9A928C", "#F4EFE2", "#E8432E", "#5BC0EB"];
+  let W, H, st;
+  const resize = () => { W = cv.width = innerWidth; H = cv.height = innerHeight;
+    st = Array.from({ length: Math.round(W * H / 6000) }, () => ({ x: Math.random() * W, y: Math.random() * H, z: 1 + (Math.random() * 3 | 0), c: cols[Math.random() * cols.length | 0], t: Math.random() * 100 })); };
+  resize(); addEventListener("resize", resize);
+  let last = 0;
+  (function frame(ts) {
+    const dt = Math.min(50, ts - last || 16); last = ts;
+    ctx.clearRect(0, 0, W, H);
+    for (const s of st) {
+      if (fx) { s.y += s.z * dt * 0.02; s.t += dt * 0.01; if (s.y > H) { s.y = -2; s.x = Math.random() * W; } }
+      if (((s.t | 0) % 7) === 0 && s.z === 1) continue; // twinkle
+      ctx.fillStyle = s.c; ctx.fillRect(s.x | 0, s.y | 0, s.z === 3 ? 3 : 2, s.z === 3 ? 3 : 2);
+    }
+    requestAnimationFrame(frame);
+  })(0);
+})();
+
+// ---------- cards and pages ----------
 function card(c, it) {
-  const l = listing(c, it), name = `${c.label} #${it.num}`;
-  const status = it.burned ? `<span class="badge bad">Burned</span>` : mine(c, it) ? `<span class="badge">Yours</span>` : l ? `<span class="meta">ends in ${left(l.expiry)}</span>` : `<span class="meta">Not listed</span>`;
+  const l = listing(c, it), name = `${c.label} #${it.num}`, own = mine(c, it);
+  const status = it.burned ? `<span class="badge bad">BURNED</span>` : own ? `<span class="badge you">YOURS</span>` : l ? `<span class="meta">ends in ${left(l.expiry)}</span>` : `<span class="meta">not listed</span>`;
   return `<a class="card" href="#/item/${c.coll}/${it.num}">
-    ${art(it.art, name)}
+    <div class="art-wrap">${art(it.art, name)}</div>
     <div class="info"><div class="title"><span>#${it.num}</span>${status}</div>
-      <div class="price">${l ? taz(l.price) : " "}</div></div>
-    ${l && !mine(c, it) ? `<span class="act" aria-hidden="true">Buy now</span>` : ""}
+      <div class="price">${l ? taz(l.price) : "&nbsp;"}</div></div>
+    ${l && !own ? `<span class="act" aria-hidden="true">BUY NOW</span>` : own && !l && !it.burned ? `<span class="act" aria-hidden="true">SELL</span>` : ""}
   </a>`;
 }
 
-// ---------- pages ----------
 function explore() {
-  return `<section class="field"><div class="wrap">
-      <h1>Collectibles that live inside shielded notes.</h1>
-      <p>Each item is a Zcash note. Buying it moves the note and the payment in one transaction. Your browser checks the whole history against the chain before you pay.</p>
-      <div class="cta"><a class="btn primary" href="#/collection/${SEALED}">Explore collections</a></div>
-      <div class="art-stack">${art(0, "Mask #1")}${art(1, "Mask #2")}</div>
+  const all = COLLECTIONS.flatMap((c) => c.items.map((i) => [c, i]));
+  const listed = all.filter(([c, i]) => listing(c, i));
+  return `<section class="hero"><div class="wrap">
+      <div class="copy">
+        <p class="kicker">ZCASH TESTNET · SHIELDED POOL</p>
+        <h1>COLLECTIBLES THAT LIVE INSIDE SHIELDED NOTES.</h1>
+        <p class="lead">Every item is a private Zcash note. Buy it and the item and the payment move in one transaction. Your browser checks the item against the chain before you pay.</p>
+        <div class="cta"><a class="btn primary big" href="#/collection/${SEALED}"><span class="blink">▶</span> PRESS START</a>
+          ${me() ? "" : `<button class="btn ghost big" data-open="connect">INSERT COIN</button>`}</div>
+      </div>
+      <div class="formation" aria-hidden="true">
+        <div class="row">${art(0, "")}${art(1, "")}${art(0, "")}</div>
+        <div class="row">${art(1, "")}${art(0, "")}</div>
+        <img class="ship" src="mark.svg" alt="">
+      </div>
     </div></section>
-    <section class="section"><div class="wrap"><h2>Collections</h2>
+    <section class="score"><div class="wrap">
+      <div><span class="k">ITEMS</span><span class="v">${all.length}</span></div>
+      <div><span class="k">LISTED</span><span class="v">${listed.length}</span></div>
+      <div><span class="k">FLOOR</span><span class="v">${floor(COLLECTIONS[0]) ? taz(floor(COLLECTIONS[0])) : "–"}</span></div>
+      <div><span class="k">OWNERS SHOWN</span><span class="v">0</span></div>
+    </div></section>
+    ${listed.length ? `<section class="section"><div class="wrap"><h2>ON SALE NOW</h2><div class="grid">${listed.map(([c, i]) => card(c, i)).join("")}</div></div></section>` : ""}
+    <section class="section"><div class="wrap"><h2>COLLECTIONS</h2>
       <div class="collections">${COLLECTIONS.map((c) => {
-        const listed = c.items.filter((i) => listing(c, i)).length, f = floor(c);
+        const n = c.items.filter((i) => listing(c, i)).length, f = floor(c);
         return `<a class="ccard" href="#/collection/${c.coll}">
           <div class="mosaic">${c.items.map((i) => art(i.art, `${c.label} #${i.num}`)).join("")}</div>
-          <div class="body"><div class="name">${esc(c.label)}</div><span class="badge ok">Genuine issuance (R1)</span>
+          <div class="body"><div class="name">${esc(c.label)}</div><span class="badge ok">GENUINE ISSUANCE (R1)</span>
             <dl><div><dt class="meta">Supply</dt><dd>${c.items.length} ${c.sealed ? "sealed" : "final"}</dd></div>
               <div><dt class="meta">Floor</dt><dd>${f ? taz(f) : "–"}</dd></div>
-              <div><dt class="meta">Listed</dt><dd>${listed}</dd></div></dl></div></a>`;
-      }).join("")}</div></div></section>`;
+              <div><dt class="meta">Listed</dt><dd>${n}</dd></div></dl></div></a>`;
+      }).join("")}</div></div></section>
+    <section class="section how"><div class="wrap"><h2>HOW TO PLAY</h2><ol class="howto">
+      <li><b>1</b><span>Insert coin: connect a wallet account.</span></li>
+      <li><b>2</b><span>Deposit test TAZ to your collectibles account.</span></li>
+      <li><b>3</b><span>Buy an item. Your browser verifies it from chain first.</span></li>
+      <li><b>4</b><span>Or list one you hold. Item and payment swap in one transaction.</span></li></ol></div></section>`;
 }
 
 function collection(c, tab, listedOnly, sort) {
@@ -150,13 +230,13 @@ function collection(c, tab, listedOnly, sort) {
     ? `<div class="browse">
         <aside class="filters" aria-label="Filters"><fieldset><legend class="meta">Status</legend>
           <label><input type="radio" name="st" value="all" ${listedOnly ? "" : "checked"}> All</label>
-          <label><input type="radio" name="st" value="listed" ${listedOnly ? "checked" : ""}> Listed</label></fieldset></aside>
+          <label><input type="radio" name="st" value="listed" ${listedOnly ? "checked" : ""}> On sale</label></fieldset></aside>
         <div><div class="toolbar"><span class="meta">${items.length} item${items.length === 1 ? "" : "s"}</span>
             <select id="sort" aria-label="Sort"><option value="price-asc" ${sort === "price-asc" ? "selected" : ""}>Price low to high</option>
               <option value="price-desc" ${sort === "price-desc" ? "selected" : ""}>Price high to low</option>
               <option value="num" ${sort === "num" ? "selected" : ""}>Item number</option></select></div>
           <div class="grid">${items.map((i) => card(c, i)).join("")}</div></div></div>`
-    : `<div class="section" style="max-width:720px"><dl class="rows">
+    : `<div class="section" style="max-width:760px"><dl class="rows">
         <div><dt>Collection id</dt><dd>${c.coll}</dd></div>
         <div><dt>Genesis tx</dt><dd>${c.genesis} (block ${c.genesisH})</dd></div>
         <div><dt>Supply</dt><dd>${c.items.length} items. ${c.sealed ? "Sealed: the final note went to an address nobody can spend from, so no more can ever be minted." : "Finalized: the issuer wrote a FINAL note."}</dd></div>
@@ -164,77 +244,71 @@ function collection(c, tab, listedOnly, sort) {
   return `<div class="wrap">
     <div class="chead"><div class="logo">${art(c.items[0].art, c.label)}</div>
       <div><span class="meta">Collection · ${short(c.coll, 16)}</span><h1>${esc(c.label)}</h1>
-        <span class="badge ok">Genuine issuance (R1)</span> <span class="badge">${c.sealed ? "Sealed supply" : "Final supply"}</span>
-        <span class="mute issuer" style="margin-left:8px">Issuer key ${short(c.coll, 12)}</span></div></div>
+        <span class="badge ok">GENUINE ISSUANCE (R1)</span> <span class="badge">${c.sealed ? "SEALED SUPPLY" : "FINAL SUPPLY"}</span></div></div>
     <dl class="stats"><div><dt class="meta">Floor</dt><dd>${f ? taz(f) : "–"}</dd></div>
-      <div><dt class="meta">Listed</dt><dd>${listed} of ${c.items.length}</dd></div>
+      <div><dt class="meta">On sale</dt><dd>${listed} of ${c.items.length}</dd></div>
       <div><dt class="meta">Items</dt><dd>${c.items.length}</dd></div>
       <div><dt class="meta">Pool</dt><dd>Ironwood (shielded)</dd></div></dl>
     <div class="tabs" role="tablist">
-      <button class="tab" role="tab" data-tab="items" aria-selected="${tab === "items"}">Items</button>
-      <button class="tab" role="tab" data-tab="about" aria-selected="${tab === "about"}">About</button></div>
+      <button class="tab" role="tab" data-tab="items" aria-selected="${tab === "items"}">ITEMS</button>
+      <button class="tab" role="tab" data-tab="about" aria-selected="${tab === "about"}">ABOUT</button></div>
     ${body}</div>`;
 }
 
 const SALE_STEPS = [
-  ["reserved", "Reserved", "Buyer's intent and a 30-minute lease"],
-  ["disclosed", "Disclosed", "Vault key and carrier location, signed and encrypted to the buyer"],
-  ["verified", "Verified by the buyer", "R2 and R3 from chain, in the buyer's browser"],
-  ["offer", "Offer received", "The buyer's signed transaction, encrypted to the seller"],
-  ["accepted", "Checked, signed, broadcast", "Price, expiry, shape and carrier checked; seller signs last"],
+  ["reserved", "Reserve", "Your intent and a 30-minute lease on this listing"],
+  ["disclosed", "Seller's disclosure", "Vault key and carrier location, signed and encrypted to you"],
+  ["verified", "Verify from chain", "R1 to R3 in this browser before you pay"],
+  ["deposited", "Funds ready", "Price and network fee in your collectibles account"],
+  ["proving", "Build and prove", "3 Actions, proved in this browser"],
+  ["offer", "Send the offer", "Signed by you, encrypted to the seller"],
+  ["accepted", "Seller signs and broadcasts", "Price, expiry and carrier checked; the seller signs last"],
   ["confirmed", "Confirmed", "Item and payment moved in one transaction"],
 ];
-const ORDER = ["reserved", "disclosed", "verified", "deposited", "proving", "offer", "accepted", "confirmed"];
+const ORDER = SALE_STEPS.map(([k]) => k);
 const reached = (stage, s) => s && ORDER.indexOf(s.stage) >= ORDER.indexOf(stage);
 
-function saleTimeline(s) {
-  return `<ol class="steps">${SALE_STEPS.map(([k, title, sub]) => {
-    const done = reached(k, s), now = !done && ORDER.indexOf(k) === ORDER.indexOf(s.stage) + 1;
-    return `<li class="${done ? "done" : now ? "now" : ""}"><span>${title}<br><span class="state">${sub}</span></span><span></span></li>`;
-  }).join("")}</ol>`;
+function provenance(c, it, v) {
+  if (!v) return `<dl class="rows checks"><div><dt><span class="badge ok">R1</span></dt><dd>Issued in ${short(c.genesis, 12)} at block ${c.genesisH}; the sequence is ${c.sealed ? "sealed" : "final"}.</dd></div></dl>
+      <div class="locked"><span class="badge wait">R2</span> <span class="badge wait">R3</span><br>The transfer chain and the current holder are checked in your browser once the seller discloses this item's vault key to you. That happens when you press Buy, before you pay anything.</div>`;
+  return `<dl class="rows checks">
+      <div><dt><span class="badge ok">R1</span></dt><dd>${v.items} items issued, ${v.sealed ? "sealed" : "final"}; genesis ${short(c.genesis, 12)} at block ${c.genesisH}.</dd></div>
+      <div><dt><span class="badge ${v.verdict === "HELD" ? "ok" : "bad"}">R2</span></dt><dd>${v.verdict === "HELD" ? `${v.hop} transfer${v.hop === 1 ? "" : "s"}, every successor bound to its spend in one Action.` : esc(v.verdict + (v.error ? ": " + v.error : ""))}</dd></div>
+      <div><dt><span class="badge ${v.verdict === "HELD" ? "ok" : "bad"}">R3</span></dt><dd>${v.verdict === "HELD" ? "The vault opens the current carrier; it is unspent." : "not held"}</dd></div>
+      <div><dt class="meta">Checked</dt><dd>${v.simulated ? "simulated in this demo (no public test key for this item)" : `in this browser: ${v.blocks.toLocaleString("en-US")} blocks to ${v.tip_checked}, ${v.seconds.toFixed(1)} s, chain data from zcash-testnet.chainsafe.dev`}</dd></div>
+    </dl>
+    <p class="meta" style="margin-top:16px">History</p>
+    <ol class="timeline">${it.history.map(([what, h, tx]) => `<li><span>${esc(what)} <span class="mute">· block ${h}${tx ? ` · tx ${tx}…` : ""}</span></span></li>`).join("")}</ol>`;
 }
 
 function item(c, it) {
-  const name = `${c.label} #${it.num}`, key = keyOf(c, it), l = S.listings[key], s = S.sale?.key === key && S.sale.stage !== "confirmed" ? S.sale : null;
-  const holder = mine(c, it), buying = ROLE === "buyer" && s && s.stage !== "confirmed";
-  const verified = (holder && S.check?.[key]) || (ROLE === "buyer" && s?.verify);
+  const name = `${c.label} #${it.num}`, key = keyOf(c, it), l = S.listings[key], u = me();
+  const s = S.sale?.key === key && S.sale.stage !== "confirmed" ? S.sale : null;
+  const own = mine(c, it), buying = u && s && s.buyer === u.id;
+  const v = (own && S.check[key]) || (buying && s.verify);
   let action;
-  if (it.burned) action = `<div class="in"><span class="badge bad">Burned</span><p class="mute">This item's chain ended in a note that is not a valid carrier. It can never be bought or sold.</p></div>`;
-  else if (holder && s && ROLE === "seller") action = `<div class="in"><p class="meta">Sale in progress · your open tab handles it</p>${saleTimeline(s)}</div>`;
-  else if (holder) action = `<div class="in"><p class="meta">You hold this item</p>
-      ${l ? `<div class="price-big">${taz(l.price)}</div><p class="mute">Listed, ends in ${left(l.expiry)} (block ${l.expiry})</p><button class="btn block" data-do="unlist">Cancel listing</button>`
-          : `<button class="btn primary block" data-open="list">List for sale</button>`}</div>`;
-  else if (buying) action = `<div class="in"><p class="meta">Your purchase</p><div class="price-big">${taz(s.price)}</div><button class="btn primary block" data-open="buy">Show progress</button></div>`;
-  else if (s) action = `<div class="in"><p class="meta">Reserved</p><p class="mute">Another buyer holds the lease on this listing. It reopens if they do not finish.</p></div>`;
+  if (it.burned) action = `<div class="in"><span class="badge bad">BURNED</span><p class="mute">This item's chain ended in a note that is not a valid carrier. It can never be bought or sold.</p></div>`;
+  else if (own && s) action = `<div class="in"><p class="meta">Sale in progress</p><div class="price-big">${taz(s.price)}</div><p class="mute">A buyer reserved your listing. Zarrier answers for you while this site is open in your browser.</p></div>`;
+  else if (own) action = `<div class="in"><p class="meta">You hold this item</p>
+      ${l ? `<div class="price-big">${taz(l.price)}</div><p class="mute">On sale, ends in ${left(l.expiry)} (block ${l.expiry})</p><button class="btn block" data-do="unlist">CANCEL LISTING</button>`
+          : `<button class="btn primary block" data-open="list">▶ LIST FOR SALE</button>`}</div>`;
+  else if (buying) action = `<div class="in"><p class="meta">Your purchase</p><div class="price-big">${taz(s.price)}</div><button class="btn primary block" data-open="buy">SHOW PROGRESS</button></div>`;
+  else if (s) action = `<div class="in"><p class="meta">Reserved</p><p class="mute">Another player holds the lease on this listing. It reopens if they do not finish.</p></div>`;
   else if (l) action = `<div class="in"><p class="meta">Price</p><div class="price-big">${taz(l.price)}</div>
       <p class="mute">${zats(l.price)} · testnet, no value · ends in ${left(l.expiry)} (block ${l.expiry})</p>
-      <button class="btn primary block" data-open="buy">Buy now</button></div>`;
-  else action = `<div class="in"><p class="meta">Not listed</p><p class="mute">The holder has not listed this item.</p></div>`;
-
-  const v = verified;
-  const prov = v
-    ? `<dl class="rows checks">
-        <div><dt><span class="badge ok">R1</span></dt><dd>${v.items} items issued, ${v.sealed ? "sealed" : "final"}; genesis ${short(c.genesis, 12)} at block ${c.genesisH}.</dd></div>
-        <div><dt><span class="badge ${v.verdict === "HELD" ? "ok" : "bad"}">R2</span></dt><dd>${v.verdict === "HELD" ? `${v.hop} transfer${v.hop === 1 ? "" : "s"}, every successor bound to its spend in one Action.` : esc(v.verdict + (v.error ? ": " + v.error : ""))}</dd></div>
-        <div><dt><span class="badge ${v.verdict === "HELD" ? "ok" : "bad"}">R3</span></dt><dd>${v.verdict === "HELD" ? "The vault opens the current carrier; it is unspent." : "not held"}</dd></div>
-        <div><dt class="meta">Checked</dt><dd>${v.simulated ? "simulated in this demo (no public test key for this item)" : `in this browser: ${v.blocks.toLocaleString("en-US")} blocks to ${v.tip_checked}, ${v.seconds.toFixed(1)} s, chain data from zcash-testnet.chainsafe.dev`}</dd></div>
-      </dl>
-      <p class="meta" style="margin-top:16px">History</p>
-      <ol class="timeline">${it.history.map(([what, h, tx]) => `<li><span>${esc(what)} <span class="mute">· block ${h}${tx ? ` · tx ${tx}…` : ""}</span></span></li>`).join("")}</ol>`
-    : `<dl class="rows checks"><div><dt><span class="badge ok">R1</span></dt><dd>Issued in ${short(c.genesis, 12)} at block ${c.genesisH}; the sequence is ${c.sealed ? "sealed" : "final"}.</dd></div></dl>
-      <div class="locked"><span class="badge wait">R2</span> <span class="badge wait">R3</span><br>The transfer chain and the current holder are checked in your browser once the seller discloses this item's vault key to you. That happens when you press Buy, before you pay anything.</div>`;
-
+      <button class="btn primary block" data-open="buy">▶ BUY NOW</button></div>`;
+  else action = `<div class="in"><p class="meta">Not listed</p><p class="mute">The holder has not put this item on sale.</p></div>`;
   const more = c.items.filter((x) => x !== it);
   return `<div class="wrap"><div class="item">
     <div class="media"><div class="frame">${art(it.art, name)}</div><p class="meta" style="margin-top:12px">Art: 386 bytes in the carrier memo, drawn from those bytes</p></div>
     <div class="side">
-      <a href="#/collection/${c.coll}">${esc(c.label)}</a> <span class="badge ok">R1</span>
+      <a href="#/collection/${c.coll}" class="crumb">${esc(c.label)}</a> <span class="badge ok">R1</span>
       <h1>${esc(name)}</h1>
-      <span class="mute">Holder: ${holder ? "you" : "private (shielded)"}</span>
-      <div class="chips"><span class="chip">Ironwood</span><span class="chip">Testnet</span><span class="chip">Item ${it.num} of ${c.items.length}</span><span class="chip">Hop ${it.hop}</span></div>
+      <span class="mute">Holder: ${own ? "you" : "private (shielded)"}</span>
+      <div class="chips"><span class="chip">IRONWOOD</span><span class="chip">TESTNET</span><span class="chip">ITEM ${it.num} OF ${c.items.length}</span><span class="chip">HOP ${it.hop}</span></div>
       <section class="panel" aria-label="Price">${action}</section>
-      <section class="panel"><header><span>Provenance</span><span class="meta">${v ? "verified" : "R1 public, R2 and R3 after disclosure"}</span></header><div class="in">${prov}</div></section>
-      <section class="panel"><header><span>Details</span></header><div class="in"><dl class="rows">
+      <section class="panel"><header><span>PROVENANCE</span><span class="meta">${v ? "verified" : "R1 public, R2 and R3 after disclosure"}</span></header><div class="in">${provenance(c, it, v)}</div></section>
+      <section class="panel"><header><span>DETAILS</span></header><div class="in"><dl class="rows">
         <div><dt>Collection id</dt><dd>${c.coll}</dd></div><div><dt>Item</dt><dd>#${it.num}</dd></div>
         <div><dt>Standard</dt><dd>Carrier note v0 (ZCR1 memo), zero value</dd></div><div><dt>Metadata</dt><dd>Fully on chain</dd></div></dl></div></section>
       ${more.length ? `<p class="meta" style="margin-top:32px">More from this collection</p><div class="grid">${more.map((x) => card(c, x)).join("")}</div>` : ""}
@@ -242,247 +316,258 @@ function item(c, it) {
 }
 
 function account(tab) {
+  const u = me();
+  if (!u) return `<div class="wrap"><section class="gate"><h1>INSERT COIN</h1><p class="lead">Connect a wallet account to see your items, deposit and sell.</p>
+      <button class="btn primary big" data-open="connect"><span class="blink">▶</span> CONNECT WALLET</button></section></div>`;
   const held = [];
   for (const c of COLLECTIONS) for (const it of c.items) if (mine(c, it)) held.push([c, it]);
   const listed = held.filter(([c, it]) => listing(c, it));
   const body = tab === "collected"
     ? (held.length ? `<div class="grid" style="margin-top:24px">${held.map(([c, it]) => card(c, it)).join("")}</div>` : `<p class="mute" style="margin-top:16px">Nothing yet. <a href="#/collection/${SEALED}">Browse a collection</a>.</p>`)
     : tab === "listed"
-    ? `<dl class="rows" style="margin-top:16px">${listed.map(([c, it]) => `<div><dt>${esc(c.label)} #${it.num}</dt><dd>${taz(listing(c, it).price)} · ends block ${listing(c, it).expiry}</dd></div>`).join("") || "<p class='mute'>Nothing listed.</p>"}</dl>`
+    ? `<dl class="rows" style="margin-top:16px">${listed.map(([c, it]) => `<div><dt>${esc(c.label)} #${it.num}</dt><dd>${taz(listing(c, it).price)} · ends block ${listing(c, it).expiry}</dd></div>`).join("") || "<p class='mute'>Nothing on sale.</p>"}</dl>`
     : `<p class="mute" style="margin-top:16px">Activity is kept in this browser only. The site publishes no sale events.</p>
-       <ol class="timeline">${S.feed.filter((f) => f.who === ROLE).reverse().map((f) => `<li><span>${esc(f.text)} <span class="mute">· ${new Date(f.at).toLocaleTimeString()}</span></span></li>`).join("") || "<li><span class='mute'>Nothing yet.</span></li>"}</ol>`;
+       <ol class="timeline">${S.feed.filter((f) => f.who === u.id).reverse().map((f) => `<li><span>${esc(f.text)} <span class="mute">· ${new Date(f.at).toLocaleTimeString()}</span></span></li>`).join("") || "<li><span class='mute'>Nothing yet.</span></li>"}</ol>`;
   return `<div class="wrap"><div class="acct">
-      <section class="panel bal"><header><span>Collectibles account</span><span class="meta">from your wallet signature</span></header><div class="in">
-        <div class="price-big">${taz(S.bal[ROLE])}</div>
-        <div class="btns"><button class="btn primary" data-do="deposit">Deposit</button><button class="btn" data-do="sweep" ${S.bal[ROLE] ? "" : "disabled"}>Sweep to wallet</button><button class="btn" disabled>Restore</button></div>
-        <p class="mute" style="font-size:14px">Keep only what you plan to spend on items here. Your main ZEC stays in your wallet.</p></div></section></div>
-    <div class="tabs" role="tablist">${["collected", "listed", "activity"].map((t) => `<button class="tab" role="tab" data-atab="${t}" aria-selected="${tab === t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</div>
+      <section class="panel bal"><header><span>${pname(u)} · COLLECTIBLES ACCOUNT</span><span class="meta">${esc(u.addr)}</span></header><div class="in">
+        <p class="meta">Credit</p><div class="price-big">${taz(u.bal)}</div>
+        <div class="btns"><button class="btn primary" data-open="deposit">▶ DEPOSIT</button><button class="btn" data-do="sweep" ${u.bal ? "" : "disabled"}>WITHDRAW</button><button class="btn" data-open="connect">SWITCH ACCOUNT</button></div>
+        <p class="mute" style="font-size:14px">Keep only what you plan to spend on items here. Your main ZEC stays in your wallet.</p></div></section>
+      <section class="panel stats-p"><header><span>STATS</span></header><div class="in"><dl class="mini">
+        <div><dt class="meta">Items held</dt><dd>${held.length}</dd></div><div><dt class="meta">On sale</dt><dd>${listed.length}</dd></div>
+        <div><dt class="meta">Bought</dt><dd>${S.feed.filter((f) => f.who === u.id && f.kind === "bought").length}</dd></div><div><dt class="meta">Sold</dt><dd>${S.feed.filter((f) => f.who === u.id && f.kind === "sold").length}</dd></div></dl></div></section></div>
+    <div class="tabs" role="tablist">${["collected", "listed", "activity"].map((t) => `<button class="tab" role="tab" data-atab="${t}" aria-selected="${tab === t}">${{ collected: "COLLECTED", listed: "ON SALE", activity: "ACTIVITY" }[t]}</button>`).join("")}</div>
     ${body}<div style="height:96px"></div></div>`;
 }
 
 // ---------- modals ----------
-let modal = null; // { name, c, it, ... }
+let modal = null;
 const stepList = (rows) => `<ol class="steps">${rows.map(([cls, title, sub, right = ""]) => `<li class="${cls}"><span>${title}<br><span class="state">${sub}</span></span><span class="state">${esc(right)}</span></li>`).join("")}</ol>`;
+const head = (t) => `<header><h2>${esc(t)}</h2><button class="x" data-close aria-label="Close">×</button></header>`;
 
 function connectModal() {
-  const done = S.connected[ROLE];
-  return `<header><h2>Connect</h2><button class="x" data-close aria-label="Close">×</button></header><div class="in">
-    ${stepList([
-      ["done", "Wallet found", "Noir 1.0.37, testnet build"],
-      [done ? "done" : "now", "Share your shielded address", "Used only as the destination for sweeps"],
-      [done ? "done" : "", "Sign the collectibles key message", "Your browser derives your collectibles keys from this signature"],
-    ])}
-    <div class="notice">Only approve this message on this site. A site that gets it signed can move your carrier items and your collectibles balance. It cannot move your ZEC.</div>
-    ${done ? `<button class="btn block" data-close>Done</button>` : `<button class="btn primary block" data-do="connect">Approve in Noir (simulated)</button>`}</div>`;
+  const u = me();
+  return `${head(u ? "SWITCH ACCOUNT" : "CONNECT WALLET")}<div class="in">
+    <p class="mute">Noir wallet, testnet build (simulated in this demo). Pick the account to play with.</p>
+    <div class="accounts">${S.accounts.map((a) => `<button class="acc ${u?.id === a.id ? "on" : ""}" data-pick="${a.id}">
+        <span class="pn">${pname(a)}</span><span class="ad">${esc(a.addr)}</span>
+        <span class="st">${(S.held[a.id] || []).length} item${(S.held[a.id] || []).length === 1 ? "" : "s"} · ${taz(a.bal)}</span></button>`).join("")}
+      <button class="acc new" data-do="newacct"><span class="pn">+ NEW ACCOUNT</span><span class="ad">a fresh wallet account</span></button></div>
+    <div class="notice">Connecting signs one message that derives your collectibles keys. Only approve it on this site: it can move your carrier items and collectibles balance, never your ZEC.</div>
+    ${u ? `<button class="btn block" data-do="disconnect">DISCONNECT</button>` : ""}</div>`;
+}
+
+function depositModal() {
+  const u = me(), m = modal;
+  if (!u) return connectModal();
+  const qr = Array.from({ length: 121 }, (_, i) => `<i class="${(m.seed.charCodeAt(i % m.seed.length) * (i + 7)) % 3 ? "" : "on"}"></i>`).join("");
+  return `${head("DEPOSIT")}<div class="in">
+    <p class="mute">Send test TAZ to your collectibles account from Noir or any Zcash wallet. Free TAZ comes from the Zcash testnet faucet.</p>
+    <div class="dep"><div class="qr" aria-hidden="true">${qr}</div>
+      <div><p class="meta">Your deposit address</p><p class="addr">${esc(u.addr)}</p>
+        <label class="meta" for="damt">Amount</label>
+        <select id="damt"><option value="50000">0.0005 TAZ</option><option value="100000" selected>0.001 TAZ</option><option value="1000000">0.01 TAZ</option></select></div></div>
+    ${m.phase === "wait" ? stepList([["done", "Sent from Noir", "simulated"], ["now", "Waiting for 1 confirmation", "about 75 s on testnet, sped up here"]])
+      : m.phase === "done" ? `<div class="success-line">+${taz(m.amount)} CREDIT</div><button class="btn primary block" data-close>CONTINUE</button>`
+      : `<button class="btn primary block" data-do="deposit">▶ SEND FROM NOIR (SIMULATED)</button>`}</div>`;
 }
 
 function listModal() {
   const m = modal, name = `${m.c.label} #${m.it.num}`;
-  if (m.phase === "form") return `<header><h2>List ${esc(name)}</h2><button class="x" data-close aria-label="Close">×</button></header><div class="in form">
+  if (m.phase === "form") return `${head(`LIST ${name}`)}<div class="in form">
     <label>Price (TAZ)<input type="number" step="0.00001" min="0.00001" value="${m.price / 1e8}" id="lp"></label>
     <label>Listing ends<select id="lttl"><option value="500">in 500 blocks (about 10 h)</option><option value="1000" selected>in 1,000 blocks (about 21 h)</option><option value="2000">in 2,000 blocks (about 42 h)</option></select></label>
     <div class="sum"><div><span>Price</span><span id="lp1">${taz(m.price)}</span></div><div><span>Marketplace fee</span><span>0</span></div><div><span>Network fee</span><span>paid by the buyer</span></div><div class="total"><span>You receive</span><span id="lp2">${taz(m.price)}</span></div></div>
     <div class="notice">The buyer who reserves this listing receives this item's vault viewing key, where its carrier is, and a pay address made for this listing. With the key they can read the item's full history and could republish it. Only that buyer receives it.</div>
-    <button class="btn primary block" data-do="list">List item</button></div>`;
-  const pub = m.public ? `<pre class="json">${esc(JSON.stringify(m.public, null, 2))}</pre>` : "";
-  return `<header><h2>List ${esc(name)}</h2><button class="x" data-close aria-label="Close">×</button></header><div class="in">
+    <button class="btn primary block" data-do="list">▶ LIST ITEM</button></div>`;
+  const pub = m.public ? `<p class="meta">Public listing: these six fields are all the order book sees</p><pre class="json">${esc(JSON.stringify(m.public, null, 2))}</pre>` : "";
+  return `${head(`LIST ${name}`)}<div class="in">
     ${stepList([
       [m.phase === "check" ? "now" : "done", "Check that you hold it", "R1 to R3 from chain, in this browser", m.checkNote || ""],
-      [m.phase === "publish" ? "now" : m.phase === "done" ? "done" : "", "Publish the listing", "Only these six fields go to the order book"],
+      [m.phase === "publish" ? "now" : m.phase === "done" ? "done" : "", "Publish the listing", "Only six fields go to the order book"],
     ])}
     ${pub}
-    ${m.phase === "done" ? `<button class="btn primary block" data-close>Done</button>` : m.phase === "failed" ? `<p class="mute">${esc(m.error)}</p><button class="btn block" data-close>Close</button>` : ""}</div>`;
+    ${m.phase === "done" ? `<button class="btn primary block" data-close>DONE</button>` : m.phase === "failed" ? `<p class="mute">${esc(m.error)}</p><button class="btn block" data-close>CLOSE</button>` : ""}</div>`;
 }
 
 function buyModal() {
-  const m = modal, s = S.sale?.key === keyOf(m.c, m.it) ? S.sale : null, l = listing(m.c, m.it);
+  const m = modal, u = me(), s = S.sale?.key === keyOf(m.c, m.it) ? S.sale : null, l = listing(m.c, m.it);
   const price = s ? s.price : l ? l.price : 0, total = price + FEE;
-  const st = (k) => (reached(k, s) ? "done" : "");
   const next = s ? ORDER[ORDER.indexOf(s.stage) + 1] : "reserved";
-  const cls = (k) => (st(k) || (k === next ? "now" : ""));
-  const needDeposit = s && s.stage === "verified" && S.bal.buyer < total;
-  const head = `<header><h2>Buy ${esc(m.c.label)} #${m.it.num}</h2><button class="x" data-close aria-label="Close">×</button></header>`;
-  if (s?.stage === "confirmed") return `${head}<div class="in"><div class="success">${art(m.it.art, "")}<div><p class="meta">Done</p><h2 style="font-weight:400;margin:4px 0 8px">You got it.</h2><p class="mute">${esc(m.c.label)} #${m.it.num} is in a fresh vault of yours. One transaction moved the item and the payment (simulated: block ${s.block}).</p></div></div>
-      <div class="btns" style="display:flex;gap:8px;margin-top:16px"><a class="btn primary" href="#/account" data-close>View in Account</a><button class="btn" data-close>Close</button></div></div>`;
-  return `${head}<div class="in">
+  const cls = (k) => (reached(k, s) ? "done" : k === next ? "now" : "");
+  const short_ = u && s && s.stage === "verified" && u.bal < total;
+  const h = head(`BUY ${m.c.label} #${m.it.num}`);
+  if (s?.stage === "confirmed") return `${h}<div class="in"><div class="success">${art(m.it.art, "")}<div><p class="meta">Stage clear</p><h2 class="got">YOU GOT IT.</h2><p class="mute">${esc(m.c.label)} #${m.it.num} is in a fresh vault of yours. One transaction moved the item and the payment (simulated: block ${s.block}).</p></div></div>
+      <div class="btns" style="display:flex;gap:8px;margin-top:16px"><a class="btn primary" href="#/account" data-close>VIEW MY ITEMS</a><button class="btn" data-close>CLOSE</button></div></div>`;
+  const notes = { reserved: s ? "lease granted" : "", disclosed: reached("disclosed", s) ? "signature ok" : s ? "waiting for the seller" : "",
+    verified: s?.verifyNote || "", deposited: reached("deposited", s) ? "ready" : short_ ? `credit ${taz(u.bal)}` : "",
+    proving: s?.stage === "proving" ? `${s.pct || 0}%` : reached("offer", s) ? "done" : "", offer: reached("offer", s) ? "sent" : "",
+    accepted: reached("accepted", s) ? "broadcast" : reached("offer", s) ? "waiting" : "", confirmed: "" };
+  return `${h}<div class="in">
     <div class="sum" style="border-top:0;margin-top:0;padding-top:0"><div><span>Price</span><span>${taz(price)}</span></div><div><span>Network fee</span><span>${taz(FEE)}</span></div><div class="total"><span>Total</span><span>${taz(total)}</span></div></div>
-    ${stepList([
-      [cls("reserved"), "Reserve", "Your intent and a 30-minute lease on this listing", s ? "lease granted" : ""],
-      [cls("disclosed"), "Seller's disclosure", "Vault key and carrier location, signed by the vault", reached("disclosed", s) ? "signature ok" : s ? "waiting for the seller's tab" : ""],
-      [cls("verified"), "Verify from chain", "R1 to R3 in this browser before you pay", s?.verifyNote || ""],
-      [cls("deposited"), "Deposit", `${taz(total)} to your collectibles account`, reached("deposited", s) ? "confirmed" : needDeposit ? `balance ${taz(S.bal.buyer)}` : ""],
-      [cls("proving"), "Build and prove", "3 Actions, proved in this browser (simulated: about 10 s with threads)", s?.stage === "proving" ? `${s.pct || 0}%` : reached("offer", s) ? "done" : ""],
-      [cls("offer"), "Send the offer", "Signed by you, encrypted to the seller; the seller signs last", reached("offer", s) ? "sent" : ""],
-      [cls("accepted"), "Seller accepts", "The seller's tab checks it, signs and broadcasts", reached("accepted", s) ? "broadcast" : reached("offer", s) ? "waiting" : ""],
-      [cls("confirmed"), "Confirmed", "Item and payment move in one transaction", ""],
-    ])}
-    ${needDeposit ? `<div class="notice">Your collectibles balance is ${taz(S.bal.buyer)}. Send ${taz(total)} from your wallet: a ZIP-321 request to your collectibles address, by Noir or any wallet (QR).</div><button class="btn primary block" data-do="pay">Pay with Noir (simulated)</button>` : ""}
-    ${!s ? `<div class="notice">Until the offer expires (about 25 minutes) the seller decides whether to complete it. To cancel, spend your deposit back to yourself; that only counts once mined. Either the whole sale happens or your deposit stays yours.</div>
-      ${S.connected.buyer ? `<button class="btn primary block" data-do="reserve">Reserve and verify</button>` : `<button class="btn primary block" data-open="connect">Connect first</button>`}` : ""}
+    ${stepList(SALE_STEPS.map(([k, t, sub]) => [cls(k), t, sub, notes[k]]))}
+    ${short_ ? `<div class="notice">Your credit is ${taz(u.bal)}. Deposit at least ${taz(total - u.bal)} more to continue. The lease holds your place.</div><button class="btn primary block" data-open="deposit">▶ DEPOSIT</button>` : ""}
+    ${!s ? `<div class="notice">Until the offer expires (about 25 minutes) the seller decides whether to complete it. Either the whole sale happens or your funds stay yours.</div>
+      ${u ? `<button class="btn primary block" data-do="reserve">▶ RESERVE AND VERIFY</button>` : `<button class="btn primary block" data-open="connect">INSERT COIN FIRST</button>`}` : ""}
     ${s?.error ? `<p class="mute">${esc(s.error)}</p>` : ""}
   </div>`;
 }
 
 function renderModal() {
   if (!modal) return $("#scrim").classList.remove("open");
-  const html = { connect: connectModal, list: listModal, buy: buyModal }[modal.name]();
-  $("#modal").innerHTML = html;
+  $("#modal").innerHTML = { connect: connectModal, list: listModal, buy: buyModal, deposit: depositModal }[modal.name]();
   hydrate($("#modal"));
   $("#scrim").classList.add("open");
 }
+let back = null; // a modal to return to (buy after deposit)
 function openModal(name) {
   const [, page, a, b] = location.hash.split("/");
   const c = findColl(a || ""), it = c && c.items.find((x) => x.num === +b);
-  modal = { name, c, it, phase: "form", price: 10000 };
+  if (modal && (name === "deposit" || name === "connect")) back = modal;
+  modal = { name, c, it, phase: "form", price: 10000, seed: hex(8) };
   renderModal();
-  $("#modal").querySelector("button, input")?.focus();
+  $("#modal").querySelector("button:not(.x), input, select")?.focus();
 }
-function closeModal() { modal = null; renderModal(); }
+function closeModal() {
+  if (back && (modal?.name === "deposit" || modal?.name === "connect")) { modal = back; back = null; return renderModal(); }
+  modal = null; back = null; renderModal();
+}
 
 // ---------- actions ----------
 async function doList() {
-  const m = modal, price = Math.round(Number($("#lp").value) * 1e8), ttl = Number($("#lttl").value);
-  if (!(price > 0)) return;
-  m.price = price;
-  m.phase = "check";
-  renderModal();
-  let ok = true;
-  if (m.it.chain) {
-    const r = await chainCheck(m.c, m.it, true, (msg) => { m.checkNote = msg; renderModal(); });
-    ok = r.verdict === "HELD";
-    m.checkNote = ok ? `HELD, ${r.blocks.toLocaleString("en-US")} blocks, ${r.seconds.toFixed(1)} s` : r.verdict;
-    if (ok) save((s) => { s.check = s.check || {}; s.check[keyOf(m.c, m.it)] = r; });
-    else { m.phase = "failed"; m.error = `Not listed: ${r.verdict} ${r.error || ""}`; return renderModal(); }
-  } else {
-    await wait(900);
-    m.checkNote = "simulated (no public test key for this item)";
-  }
-  m.phase = "publish";
-  renderModal();
+  const m = modal, u = me(), price = Math.round(Number($("#lp").value) * 1e8), ttl = Number($("#lttl").value);
+  if (!(price > 0) || !u) return;
+  m.price = price; m.phase = "check"; renderModal();
+  const r = await holdsIt(m.c, m.it, (msg) => { m.checkNote = msg; renderModal(); });
+  if (r.verdict !== "HELD") { m.phase = "failed"; m.error = `Not listed: ${r.verdict} ${r.error || ""}`; beep("bad"); return renderModal(); }
+  m.checkNote = r.simulated ? "simulated" : `HELD, ${r.blocks.toLocaleString("en-US")} blocks, ${r.seconds.toFixed(1)} s`;
+  save((s) => { s.check[keyOf(m.c, m.it)] = r; });
+  m.phase = "publish"; renderModal();
   await wait(700);
   const expiry = TIP + ttl;
   m.public = { listing_id: hex(32), coll: m.c.coll, num: m.it.num, price, expiry_height: expiry, seller_channel_key: hex(32) };
   m.phase = "done";
-  save((s) => { s.listings[keyOf(m.c, m.it)] = { price, expiry, by: ROLE }; feed(s, ROLE, `Listed ${m.c.label} #${m.it.num} for ${taz(price)}`); });
+  save((s) => { s.listings[keyOf(m.c, m.it)] = { price, expiry, by: u.id }; feed(s, u.id, `Listed ${m.c.label} #${m.it.num} for ${taz(price)}`, "listed"); });
+  beep("ok"); banner("READY!", `${m.c.label} #${m.it.num} is on sale`);
 }
 
 function doReserve() {
-  const m = modal, l = listing(m.c, m.it);
-  if (!l || (S.sale && S.sale.stage !== "confirmed")) return;
-  save((s) => { s.sale = { key: keyOf(m.c, m.it), price: l.price, stage: "reserved" }; feed(s, "buyer", `Reserved ${m.c.label} #${m.it.num}`); feed(s, "seller", `A buyer reserved ${m.c.label} #${m.it.num}`); });
+  const m = modal, u = me(), l = listing(m.c, m.it);
+  if (!u || !l || (S.sale && S.sale.stage !== "confirmed")) return;
+  if (l.by === u.id) return;
+  save((s) => { s.sale = { key: keyOf(m.c, m.it), price: l.price, stage: "reserved", buyer: u.id, seller: l.by, driver: TAB };
+    feed(s, u.id, `Reserved ${m.c.label} #${m.it.num}`); feed(s, l.by, `A buyer reserved ${m.c.label} #${m.it.num}`); });
+  beep("click");
 }
 
-// Each side reacts to the other's moves. The buyer's screen plays the seller too when no
-// seller screen is open (single-tab use).
+// The sale moves on its own: the buyer's browser verifies, proves and offers; the seller's side
+// (its Zarrier session) discloses and accepts. In this demo one browser plays both.
 const running = new Set();
-function once(tag, fn) {
-  if (running.has(tag)) return;
-  running.add(tag);
-  fn().catch((e) => save((x) => { if (x.sale) x.sale.error = `Stopped: ${e.message || e}`; }));
-}
+function once(tag, fn) { if (running.has(tag)) return; running.add(tag); fn().catch((e) => save((x) => { if (x.sale) x.sale.error = `Stopped: ${e.message || e}`; })); }
 function automate() {
   const s = S.sale;
-  if (!s) return;
-  const [coll, num] = [s.key.slice(0, 64), +s.key.slice(65)];
-  const c = findColl(coll), it = c.items.find((x) => x.num === num);
-  const actAsSeller = ROLE === "seller" || !sellerTabOpen();
-  const tag = (k) => `${s.key}:${k}`;
-  if (actAsSeller && s.stage === "reserved") once(tag("disclose"), async () => {
-    await wait(1200);
-    save((x) => { x.sale.stage = "disclosed"; feed(x, "seller", "Lease granted; disclosure signed and sent"); });
-  });
-  if (ROLE === "buyer" && s.stage === "disclosed") once(tag("verify"), async () => {
-    let r;
-    if (it.chain) {
-      r = await chainCheck(c, it, true, (msg) => save((x) => { x.sale.verifyNote = msg; }));
-    } else {
-      await wait(1500);
-      r = { verdict: "HELD", hop: it.hop, items: c.items.length, sealed: c.sealed, simulated: true };
-    }
+  if (!s || s.stage === "confirmed" || s.driver !== TAB) return;
+  const c = findColl(s.key.slice(0, 64)), it = c.items.find((x) => x.num === +s.key.slice(65));
+  const tag = (k) => `${s.key}:${s.buyer}:${k}`;
+  const buyer = acct(s.buyer);
+  if (s.stage === "reserved") once(tag("disclose"), async () => { await wait(1200);
+    save((x) => { x.sale.stage = "disclosed"; feed(x, x.sale.seller, "Lease granted; disclosure signed and sent"); }); });
+  if (s.stage === "disclosed") once(tag("verify"), async () => {
+    const r = await holdsIt(c, it, (msg) => save((x) => { x.sale.verifyNote = msg; }));
     save((x) => {
-      if (r.verdict === "HELD") { x.sale.stage = "verified"; x.sale.verify = r; x.sale.verifyNote = r.simulated ? "simulated" : `HELD, ${r.seconds.toFixed(1)} s`; feed(x, "buyer", `Verified ${c.label} #${it.num} from chain`); }
-      else { x.sale.error = `Stopped: the item did not verify (${r.verdict}${r.error ? ": " + r.error : ""}). Nothing was paid.`; }
+      if (r.verdict === "HELD") { x.sale.stage = "verified"; x.sale.verify = r; x.sale.verifyNote = r.simulated ? "simulated" : `HELD, ${r.seconds.toFixed(1)} s`; feed(x, x.sale.buyer, `Verified ${c.label} #${it.num} from chain`); }
+      else x.sale.error = `Stopped: the item did not verify (${r.verdict}${r.error ? ": " + r.error : ""}). Nothing was paid.`;
     });
+    if (r.verdict === "HELD") beep("ok");
   });
-  if (ROLE === "buyer" && s.stage === "verified" && S.bal.buyer >= s.price + FEE) once(tag("deposited"), async () => save((x) => { x.sale.stage = "deposited"; }));
-  if (ROLE === "buyer" && s.stage === "deposited") once(tag("prove"), async () => {
+  if (s.stage === "verified" && buyer.bal >= s.price + FEE) once(tag("funds"), async () => { await wait(500); save((x) => { x.sale.stage = "deposited"; }); });
+  if (s.stage === "deposited") once(tag("prove"), async () => {
     save((x) => { x.sale.stage = "proving"; x.sale.pct = 0; });
-    for (let p = 10; p <= 100; p += 10) { await wait(950); save((x) => { x.sale.pct = p; }); }
-    save((x) => { x.sale.stage = "offer"; feed(x, "buyer", "Offer signed and sent to the seller"); feed(x, "seller", "Offer received"); });
+    for (let p = 10; p <= 100; p += 10) { await wait(650); save((x) => { x.sale.pct = p; }); }
+    save((x) => { x.sale.stage = "offer"; feed(x, x.sale.buyer, "Offer signed and sent to the seller"); feed(x, x.sale.seller, "Offer received"); });
   });
-  if (actAsSeller && s.stage === "offer") once(tag("accept"), async () => {
-    await wait(1500);
-    save((x) => { x.sale.stage = "accepted"; feed(x, "seller", `Offer checked (price ${taz(x.sale.price)}, 3 Actions, expiry, carrier unspent); signed and broadcast`); });
-    await wait(3000);
+  if (s.stage === "offer") once(tag("accept"), async () => {
+    await wait(1400);
+    save((x) => { x.sale.stage = "accepted"; feed(x, x.sale.seller, `Offer checked (price ${taz(x.sale.price)}, 3 Actions, expiry, carrier unspent); signed and broadcast`); });
+    await wait(2600);
     save((x) => {
-      const k = x.sale.key;
-      x.sale.stage = "confirmed";
-      x.sale.block = TIP + 2;
-      x.held.seller = x.held.seller.filter((h) => h !== k);
-      x.held.buyer.push(k);
-      x.bal.buyer -= x.sale.price + FEE;
-      x.bal.seller += x.sale.price;
+      const k = x.sale.key, b = x.accounts.find((a) => a.id === x.sale.buyer), sl = x.accounts.find((a) => a.id === x.sale.seller);
+      x.sale.stage = "confirmed"; x.sale.block = TIP + 2;
+      x.held[sl.id] = x.held[sl.id].filter((h) => h !== k);
+      (x.held[b.id] ||= []).push(k);
+      b.bal -= x.sale.price + FEE; sl.bal += x.sale.price;
       delete x.listings[k];
-      x.check = x.check || {};
       x.check[k] = x.sale.verify;
-      feed(x, "seller", `Sold for ${taz(x.sale.price)}; paid to a fresh address of your collectibles account`);
-      feed(x, "buyer", `Bought for ${taz(x.sale.price)}`);
+      feed(x, sl.id, `Sold ${c.label} #${it.num} for ${taz(x.sale.price)}`, "sold");
+      feed(x, b.id, `Bought ${c.label} #${it.num} for ${taz(x.sale.price)}`, "bought");
     });
   });
 }
 
-// ---------- toasts: the latest events for this role ----------
-let toastSeen = Date.now();
-function renderToasts() {
-  const box = $("#toasts");
-  for (const f of S.feed.filter((f) => f.who === ROLE && f.at > toastSeen)) {
+// Celebrate events that belong to the account active in this tab.
+let seenAt = Date.now();
+function celebrate() {
+  const u = me(), box = $("#toasts");
+  for (const f of S.feed.filter((f) => f.at > seenAt && u && f.who === u.id)) {
     const t = document.createElement("div");
-    t.className = "toast";
-    t.textContent = f.text;
-    box.append(t);
-    setTimeout(() => t.remove(), 5000);
+    t.className = "toast"; t.textContent = f.text; box.append(t); setTimeout(() => t.remove(), 5000);
+    if (f.kind === "bought") { banner("STAGE CLEAR!", "+1 ITEM"); burst(); beep("win"); }
+    if (f.kind === "sold") { banner("SOLD!", `+${f.text.split(" for ")[1] || ""}`); burst(innerWidth / 2, innerHeight / 3); beep("coin"); }
   }
-  toastSeen = Math.max(toastSeen, ...S.feed.map((f) => f.at));
+  seenAt = Math.max(seenAt, ...S.feed.map((f) => f.at));
 }
 
 // ---------- router ----------
 let ui = { tab: "items", listedOnly: false, sort: "price-asc", atab: "collected" };
 function render() {
   const [, page, a, b] = location.hash.split("/");
-  const app = $("#app");
+  const app = $("#app"), u = me();
   document.querySelectorAll("[data-nav]").forEach((n) => n.removeAttribute("aria-current"));
   const conn = $("#connect");
-  conn.textContent = S.connected[ROLE] ? (ROLE === "seller" ? "utest1…a7c2" : "utest1…k3f9") : "Connect";
-  conn.classList.toggle("primary", !S.connected[ROLE]);
-  $("#who").textContent = ROLE === "seller" ? "Seller" : "Buyer";
+  conn.innerHTML = u ? `<span class="pn">${pname(u)}</span> <span class="ad">${esc(u.addr)}</span>` : "INSERT COIN";
+  conn.classList.toggle("on", !!u);
+  $("#hud-bal").hidden = !u;
+  if (u) $("#bal").textContent = taz(u.bal);
+  document.title = `Zarrier${u ? ` · ${pname(u)}` : ""} (testnet)`;
   let html;
   if (page === "collection" && findColl(a)) html = collection(findColl(a), ui.tab, ui.listedOnly, ui.sort);
-  else if (page === "item" && findColl(a)) {
-    const c = findColl(a), it = c.items.find((x) => x.num === +b);
-    html = it ? item(c, it) : "<div class='wrap section'>No such item.</div>";
-  } else if (page === "account") { html = account(ui.atab); $('[data-nav="account"]').setAttribute("aria-current", "page"); }
+  else if (page === "item" && findColl(a)) { const c = findColl(a), it = c.items.find((x) => x.num === +b); html = it ? item(c, it) : "<div class='wrap section'>No such item.</div>"; }
+  else if (page === "account") { html = account(ui.atab); $('[data-nav="account"]').setAttribute("aria-current", "page"); }
   else { html = explore(); $('[data-nav="explore"]').setAttribute("aria-current", "page"); }
   const y = window.scrollY;
-  app.innerHTML = html;
-  hydrate(app);
-  window.scrollTo(0, y);
+  app.innerHTML = html; hydrate(app); window.scrollTo(0, y);
 }
-function changed() { render(); if (modal) renderModal(); automate(); renderToasts(); }
+function changed() { render(); if (modal) renderModal(); automate(); celebrate(); }
 
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button, a[data-close], [data-open]");
   if (!t) return;
+  if (t.tagName === "BUTTON") beep("click");
   if (t.id === "connect") return openModal("connect");
+  if (t.id === "reset") { localStorage.removeItem(STORE); sessionStorage.removeItem(ACTIVE); S = load(); modal = null; location.hash = "#/"; return changed(); }
+  if (t.id === "sound") { soundOn = !soundOn; localStorage.setItem("zarrier-sound", soundOn ? "on" : "off"); t.textContent = soundOn ? "SOUND ON" : "SOUND OFF"; t.setAttribute("aria-pressed", String(soundOn)); return beep("ok"); }
   if (t.dataset.open) { e.preventDefault(); return openModal(t.dataset.open); }
   if (t.hasAttribute("data-close")) return closeModal();
+  if (t.dataset.pick) {
+    sessionStorage.setItem(ACTIVE, t.dataset.pick);
+    const a = me();
+    save((s) => feed(s, a.id, `Connected as ${pname(a)}`));
+    modal = back; back = null; renderModal();
+    banner(pname(a), "READY"); beep("coin");
+    return;
+  }
   const d = t.dataset.do;
-  if (d === "connect") return save((s) => { s.connected[ROLE] = true; feed(s, ROLE, "Connected Noir (simulated)"); });
+  if (d === "newacct") return save((s) => { const n = Math.max(...s.accounts.map((a) => a.n)) + 1; const a = newAccount(n); s.accounts.push(a); s.held[a.id] = []; });
+  if (d === "disconnect") { sessionStorage.removeItem(ACTIVE); modal = null; return changed(); }
   if (d === "list") return doList();
-  if (d === "unlist") { const [, , a, b] = location.hash.split("/"); return save((s) => { delete s.listings[`${findColl(a).coll}/${b}`]; }); }
+  if (d === "unlist") { const [, , a, b] = location.hash.split("/"); return save((s) => { delete s.listings[`${findColl(a).coll}/${b}`]; feed(s, me().id, "Listing cancelled"); }); }
   if (d === "reserve") return doReserve();
-  if (d === "pay") { t.disabled = true; return wait(1500).then(() => save((s) => { s.bal.buyer += s.sale.price + FEE; feed(s, "buyer", `Deposited ${taz(s.sale.price + FEE)} (simulated)`); })); }
-  if (d === "deposit") return save((s) => { s.bal[ROLE] += 50000; feed(s, ROLE, `Deposited ${taz(50000)} (simulated)`); });
-  if (d === "sweep") return save((s) => { feed(s, ROLE, `Swept ${taz(s.bal[ROLE])} to your wallet (simulated)`); s.bal[ROLE] = 0; });
+  if (d === "deposit") {
+    const m = modal, amount = Number($("#damt").value), id = me().id;
+    m.phase = "wait"; m.amount = amount; renderModal();
+    return wait(2200).then(() => { m.phase = "done"; save((s) => { s.accounts.find((a) => a.id === id).bal += amount; feed(s, id, `Deposited ${taz(amount)} (simulated)`); }); beep("coin"); });
+  }
+  if (d === "sweep") return save((s) => { const a = s.accounts.find((x) => x.id === me().id); feed(s, a.id, `Withdrew ${taz(a.bal)} to your wallet (simulated)`); a.bal = 0; });
   if (t.dataset.tab) { ui.tab = t.dataset.tab; return render(); }
   if (t.dataset.atab) { ui.atab = t.dataset.atab; return render(); }
 });
@@ -496,5 +581,6 @@ document.addEventListener("input", (e) => {
 $("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim") closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 window.addEventListener("hashchange", () => { ui = { ...ui, tab: "items", listedOnly: false }; window.scrollTo(0, 0); render(); });
-window.zarrierReset = () => { localStorage.removeItem(STORE); S = load(); changed(); };
+$("#sound").textContent = soundOn ? "SOUND ON" : "SOUND OFF";
+$("#tip").textContent = TIP.toLocaleString("en-US");
 changed();

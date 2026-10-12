@@ -57,7 +57,7 @@ Naming: these are not NFTs in the ERC-721 sense. The product (the website and ma
 | Browser network (P6) | grpc-web streaming with Ironwood actions verified on ChainSafe, relay streams | `research/stage1-checks/RESULTS.md` |
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
 | Marketplace SPEC | draft 4 (draft 3 + X1 to X8), **approved by Ryot 2026-10-02**, default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
-| Web app | design direction from Ryot 2026-10-02 (D6): OpenSea's structure, our own colors and type. Static prototype of every SPEC 7 page and modal, mock data, art drawn from the memo bytes. Since 2026-10-04 the item page's "Check on chain" runs the real verifier in the browser (wasm, grpc-web from ChainSafe). Since 2026-10-05 `demo.html` walks one whole sale from both sides; its holder checks are real, the money and proving steps simulated | `docs/marketplace/DESIGN.md`, `web/prototype/`, `scripts/build_web.sh` |
+| Web app | design direction from Ryot 2026-10-02 (D6): OpenSea's structure, our own colors and type. Static prototype of every SPEC 7 page and modal, mock data, art drawn from the memo bytes. Since 2026-10-04 the item page's "Check on chain" runs the real verifier in the browser (wasm, grpc-web from ChainSafe). Since 2026-10-12 it is one marketplace site with wallet accounts, deposits, listing and buying (arcade look); its holder checks are real, the money and proving steps simulated | `docs/marketplace/DESIGN.md`, `web/prototype/`, `scripts/build_web.sh` |
 | GitHub | `Reiunmute/zcash-carrier`, **private** | `git remote -v` |
 
 ## 3. Decisions already made (do not reopen without new evidence)

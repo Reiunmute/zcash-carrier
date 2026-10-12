@@ -79,14 +79,14 @@ bash verify.sh        # ends with VERIFY.SH OK
 
 It uses the published test viewing keys. On an Apple M4 Pro it took 166 s on 2026-10-12, most of it the WebAssembly sale self-test. It does not re-run the node's double-spend rejection or the DRY negative checks; those are logged in the evidence folders.
 
-**Watch one sale from both sides** in the browser prototype:
+**Try the marketplace** in the browser prototype:
 
 ```bash
 bash scripts/build_web.sh       # needs nightly Rust, wasm-bindgen-cli 0.2.129, wasi-sdk
-python3 scripts/serve_web.py    # then open http://127.0.0.1:8790/demo.html
+python3 scripts/serve_web.py    # then open http://127.0.0.1:8790/
 ```
 
-Seller and buyer screens sit side by side: list, reserve, disclosure, verify, deposit, prove, offer, accept. The "holds it" checks run the real verifier on testnet data. Wallet, deposit, proving, broadcast and mining are simulated on this page and labelled as such.
+It is one marketplace site, the same page for buyers and sellers. Connect a wallet account, deposit test TAZ, list an item you hold or buy one that is listed. Open a second tab and pick another account to play the other side; tabs of one browser share the market. Before listing and before paying, the "holds it" checks run the real verifier on testnet data. Wallet, deposit, proving, broadcast and mining are simulated and labelled as such.
 
 **Drive the CLI** (needs a funded testnet key in `state/`; the first run creates `state/seed.hex`):
 
