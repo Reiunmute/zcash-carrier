@@ -614,6 +614,7 @@ function automate() {
 // Celebrate events that belong to the account active in this tab.
 let seenAt = Date.now();
 function celebrate() {
+  if (document.visibilityState === "hidden") return; // shown when this tab comes back
   const u = me(), box = $("#toasts");
   for (const f of S.feed.filter((f) => f.at > seenAt && u && f.who === u.id)) {
     const t = document.createElement("div");
@@ -694,6 +695,7 @@ document.addEventListener("input", (e) => {
 });
 $("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim") closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") celebrate(); });
 window.addEventListener("hashchange", () => { ui = { ...ui, tab: "items", listedOnly: false }; window.scrollTo(0, 0); render(); });
 $("#sound").textContent = soundOn ? "SOUND ON" : "SOUND OFF";
 $("#tip").textContent = "…";
