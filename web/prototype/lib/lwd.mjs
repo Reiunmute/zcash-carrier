@@ -23,9 +23,10 @@ function* fields(b) {
 
 // POSTs one grpc-web request and yields each response message (data frames), then checks the
 // trailer's grpc-status.
-async function* call(base, method, msg) {
+async function* call(base, method, msg, signal) {
   const res = await fetch(base + SVC + method, {
     method: 'POST',
+    signal,
     headers: { 'content-type': 'application/grpc-web+proto', 'x-grpc-web': '1' },
     body: frame(Uint8Array.from(msg)),
   });
@@ -48,8 +49,8 @@ async function* call(base, method, msg) {
   if (status !== null && status !== '0') throw new Error(`${method}: grpc-status ${status}`);
 }
 
-export async function latestHeight(base) {
-  for await (const m of call(base, 'GetLatestBlock', [])) for (const [f, v] of fields(m)) if (f === 1) return v;
+export async function latestHeight(base, signal) {
+  for await (const m of call(base, 'GetLatestBlock', [], signal)) for (const [f, v] of fields(m)) if (f === 1) return v;
   throw new Error('GetLatestBlock: no height');
 }
 

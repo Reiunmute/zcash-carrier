@@ -5,9 +5,15 @@ import * as lwd from './lib/lwd.mjs';
 
 export const PUBLIC = 'https://zcash-testnet.chainsafe.dev';
 let ready, server;
-// Prefer the local relay (scripts/serve_web.py, the demo launcher) when the page is served by it;
-// otherwise talk to the public server directly. Either way the verifier checks every byte.
+// Talk to the public server directly when this browser can reach it; otherwise use the relay
+// that serves this page (scripts/serve_web.py locally, /lwd on the hosted site). The relay is not
+// trusted either: the verifier checks every byte.
 async function pickServer() {
+  try {
+    const t = AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined;
+    await lwd.latestHeight(PUBLIC, t);
+    return PUBLIC;
+  } catch {}
   try {
     const r = await fetch('/lwd/ping', { cache: 'no-store' });
     if (r.status === 204) return `${location.origin}/lwd`;

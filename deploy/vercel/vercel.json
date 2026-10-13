@@ -1,0 +1,40 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "public",
+  "buildCommand": "",
+  "installCommand": "",
+  "cleanUrls": false,
+  "rewrites": [
+    {
+      "source": "/lwd/ping",
+      "destination": "/api/lwd?p=ping"
+    },
+    {
+      "source": "/__client_error",
+      "destination": "/api/lwd?p=client_error"
+    },
+    {
+      "source": "/lwd/:path*",
+      "destination": "/api/lwd?p=:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
+  ]
+}

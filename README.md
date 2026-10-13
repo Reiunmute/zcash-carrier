@@ -79,7 +79,7 @@ bash verify.sh        # ends with VERIFY.SH OK
 
 It uses the published test viewing keys. On an Apple M4 Pro it took 166 s on 2026-10-12, most of it the WebAssembly sale self-test. It does not re-run the node's double-spend rejection or the DRY negative checks; those are logged in the evidence folders.
 
-**Try the marketplace** in the browser prototype:
+**Try the marketplace** at https://zarrier.vercel.app (Zcash testnet), or run it locally:
 
 ```bash
 bash scripts/build_web.sh       # needs nightly Rust, wasm-bindgen-cli 0.2.129, wasi-sdk
