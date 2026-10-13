@@ -108,6 +108,22 @@ await b.locator('#modal a', { hasText: 'VIEW MY ITEMS' }).click();
 await b.locator('.card', { hasText: 'YOURS' }).first().waitFor({ timeout: 5000 }).catch(() => {});
 check(await b.locator('.card', { hasText: 'YOURS' }).count() === 1, 'buyer now holds the item');
 
+// Withdraw: asks how much and where, refuses too much, then shows the transaction going through.
+await b.locator('[data-open="withdraw"]').click();
+check(await b.locator('#wamt').count() === 1 && (await b.locator('#bal').textContent()).trim() === '0.00075 TAZ', 'withdraw asks for an amount first; nothing left the account yet');
+await b.locator('#wamt').fill('0.001');
+await b.locator('[data-do="withdraw"]').click();
+check((await b.locator('#modal .notice').textContent()).includes('Not enough credit'), 'withdrawing more than the credit is refused');
+await b.locator('#wamt').fill('0.0005');
+await b.locator('[data-do="withdraw"]').click();
+await b.locator('#modal .steps li.now').first().waitFor({ timeout: 3000 });
+check((await b.locator('#modal .steps').textContent()).includes('Build and prove'), 'withdrawal shows build, broadcast, confirm');
+await b.locator('#modal .success-line').waitFor({ timeout: 15000 });
+check(/tx [0-9a-f]{64}/.test(await b.locator('#modal').textContent()), 'withdrawal shows its txid');
+await b.screenshot({ path: `${OUT}/4b-withdrawn.png` });
+check((await b.locator('#bal').textContent()).trim() === '0.00015 TAZ', 'credit after withdrawal: 0.00075 - 0.0005 - 0.0001 fee = 0.00015');
+await b.locator('#modal [data-close].btn').click();
+
 // Back in Player 1's tab: the sale arrived through the shared market.
 await a.bringToFront();
 await a.locator('.nav a', { hasText: 'MY ITEMS' }).click();
@@ -123,7 +139,7 @@ await a.locator('#modal .x').click();
 // One tab can switch between players too.
 await a.locator('#connect').click();
 await a.locator('[data-pick="p2"]').click();
-check((await a.locator('.price-big').first().textContent()).trim() === '0.00075 TAZ', 'switching account in one tab shows that player');
+check((await a.locator('.price-big').first().textContent()).trim() === '0.00015 TAZ', 'switching account in one tab shows that player');
 
 check(!errors.length, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 await browser.close();

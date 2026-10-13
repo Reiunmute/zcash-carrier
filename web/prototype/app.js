@@ -63,7 +63,10 @@ const STORE = "zarrier-market-v2", ACTIVE = "zarrier-active-account";
 const TAB = sessionStorage.getItem("zarrier-tab") || Math.random().toString(36).slice(2);
 sessionStorage.setItem("zarrier-tab", TAB);
 const LEASE_MS = 30 * 60 * 1000; // a reservation lapses after 30 minutes
-const newAccount = (n) => ({ id: `p${n}`, n, addr: `utest1${hex(3)}…${hex(2)}`, bal: 0 });
+const newAccount = (n) => ({ id: `p${n}`, n, addr: `utest1${hex(3)}…${hex(2)}`, wallet: `utest1${hex(3)}…${hex(2)}`, bal: 0 });
+const WALLETS = { p1: "utest1nr8…4d2e", p2: "utest1nw3…9b7c" }; // each player's own Noir wallet (where withdrawals go)
+const walletOf = (a) => a.wallet || WALLETS[a.id] || "utest1nq0…0000";
+const WITHDRAW_FEE = 10000; // ZIP-317 fee for a 2-Action shielded send
 function fresh() {
   const p1 = { id: "p1", n: 1, addr: "utest1qz7…a7c2", bal: 0 }, p2 = { id: "p2", n: 2, addr: "utest1xk4…k3f9", bal: 0 };
   return { accounts: [p1, p2], held: { p1: [`${SEALED}/1`, `${SEALED}/2`], p2: [] }, listings: {}, sale: null, check: {}, feed: [] };
@@ -359,7 +362,7 @@ function account(tab) {
   return `<div class="wrap"><div class="acct">
       <section class="panel bal"><header><span>${pname(u)} · COLLECTIBLES ACCOUNT</span><span class="meta">${esc(u.addr)}</span></header><div class="in">
         <p class="meta">Credit</p><div class="price-big">${taz(u.bal)}</div>
-        <div class="btns"><button class="btn primary" data-open="deposit">▶ DEPOSIT</button><button class="btn" data-do="sweep" ${u.bal ? "" : "disabled"}>WITHDRAW</button><button class="btn" data-open="connect">SWITCH ACCOUNT</button></div>
+        <div class="btns"><button class="btn primary" data-open="deposit">▶ DEPOSIT</button><button class="btn" data-open="withdraw" ${u.bal > WITHDRAW_FEE ? "" : "disabled"}>WITHDRAW</button><button class="btn" data-open="connect">SWITCH ACCOUNT</button></div>
         <p class="mute" style="font-size:14px">Keep only what you plan to spend on items here. Your main ZEC stays in your wallet.</p></div></section>
       <section class="panel stats-p"><header><span>STATS</span></header><div class="in"><dl class="mini">
         <div><dt class="meta">Items held</dt><dd>${held.length}</dd></div><div><dt class="meta">On sale</dt><dd>${listed.length}</dd></div>
@@ -395,8 +398,8 @@ function depositModal() {
       <div><p class="meta">Your deposit address</p><p class="addr">${esc(u.addr)}</p>
         <label class="meta" for="damt">Amount</label>
         <select id="damt"><option value="50000">0.0005 TAZ</option><option value="100000" selected>0.001 TAZ</option><option value="1000000">0.01 TAZ</option></select></div></div>
-    ${m.phase === "wait" ? stepList([["done", "Sent from Noir", "simulated"], ["now", "Waiting for 1 confirmation", "about 75 s on testnet, sped up here"]])
-      : m.phase === "done" ? `<div class="success-line">+${taz(m.amount)} CREDIT</div><button class="btn primary block" data-close>CONTINUE</button>`
+    ${m.phase === "wait" ? stepList([["done", "Sent from Noir", `tx ${m.txid.slice(0, 12)}… (simulated)`], ["now", "Waiting for 1 confirmation", "about 75 s on testnet, sped up here"]])
+      : m.phase === "done" ? `<div class="success-line">+${taz(m.amount)} CREDIT</div><p class="mute" style="text-align:center;font-size:13px">tx ${m.txid.slice(0, 16)}… · block ${m.block} (simulated)</p><button class="btn primary block" data-close>CONTINUE</button>`
       : `<button class="btn primary block" data-do="deposit">▶ SEND FROM NOIR (SIMULATED)</button>`}</div>`;
 }
 
@@ -456,9 +459,60 @@ function buyModal() {
   </div>`;
 }
 
+function withdrawModal() {
+  const u = me(), m = modal;
+  if (!u) return connectModal();
+  const max = Math.max(0, u.bal - WITHDRAW_FEE);
+  if (m.phase === "form") {
+    const amt = m.amount ?? max;
+    return `${head("WITHDRAW")}<div class="in form">
+    <p class="mute">Send credit from your collectibles account back to a Zcash wallet. It is a normal shielded transaction.</p>
+    <label>Amount (TAZ)<span class="amt"><input type="number" id="wamt" step="0.00001" min="0.00001" max="${max / 1e8}" value="${amt / 1e8}"><button class="btn" data-do="wmax" type="button">MAX</button></span></label>
+    <label>To<input type="text" id="wto" value="${esc(m.to ?? walletOf(u))}" spellcheck="false" autocomplete="off"></label>
+    <p class="mute" style="font-size:13px;margin-top:-8px">Default: your Noir wallet. Any shielded testnet address works.</p>
+    <div class="sum"><div><span>Available</span><span>${taz(u.bal)}</span></div><div><span>Network fee</span><span>${taz(WITHDRAW_FEE)}</span></div><div class="total"><span>Leaves your credit</span><span id="wtot">${taz(amt + WITHDRAW_FEE)}</span></div></div>
+    ${m.error ? `<div class="notice">${esc(m.error)}</div>` : ""}
+    <button class="btn primary block" data-do="withdraw">▶ REVIEW AND SEND</button></div>`;
+  }
+  const at = ["prove", "broadcast", "confirm", "done"].indexOf(m.phase);
+  const cls = (i) => (at > i ? "done" : at === i ? "now" : "");
+  return `${head("WITHDRAW")}<div class="in">
+    <div class="sum" style="border-top:0;margin-top:0;padding-top:0"><div><span>Amount</span><span>${taz(m.amount)}</span></div><div><span>Network fee</span><span>${taz(WITHDRAW_FEE)}</span></div><div><span>To</span><span>${esc(m.to)}</span></div></div>
+    ${stepList([
+      [cls(0), "Build and prove", "2 Actions, proved in this browser", m.phase === "prove" ? `${m.pct || 0}%` : at > 0 ? "done" : ""],
+      [cls(1), "Broadcast", "Signed with your collectibles key", at > 1 ? `tx ${m.txid.slice(0, 12)}…` : at === 1 ? "sending" : ""],
+      [cls(2), "Confirmed", "1 block, about 75 s on testnet, sped up here", at > 2 ? `block ${m.block}` : at === 2 ? "waiting for a block" : ""],
+    ])}
+    ${m.phase === "done" ? `<div class="success-line">-${taz(m.amount + WITHDRAW_FEE)} CREDIT</div><p class="mute" style="text-align:center;font-size:13px">tx ${m.txid}<br>(simulated in this demo)</p><button class="btn primary block" data-close>DONE</button>`
+      : `<p class="mute" style="font-size:13px">You can close this window; the withdrawal keeps going.</p>`}</div>`;
+}
+
+async function doWithdraw() {
+  const m = modal, u = me();
+  const amount = Math.round(Number($("#wamt").value) * 1e8), to = $("#wto").value.trim();
+  m.amount = amount; m.to = to; m.error = "";
+  if (!(amount > 0)) m.error = "Enter an amount above zero.";
+  else if (amount + WITHDRAW_FEE > u.bal) m.error = `Not enough credit: ${taz(amount)} plus the ${taz(WITHDRAW_FEE)} fee is more than ${taz(u.bal)}.`;
+  else if (!/^(utest1|ztestsapling1)[0-9a-z…]{6,}$/.test(to)) m.error = "That does not look like a shielded testnet address (utest1…).";
+  if (m.error) { beep("bad"); return renderModal(); }
+  const id = u.id, show = () => { if (modal === m) renderModal(); };
+  m.phase = "prove"; m.pct = 0; show();
+  for (let p = 20; p <= 100; p += 20) { await wait(450); m.pct = p; show(); }
+  m.phase = "broadcast"; show();
+  await wait(800);
+  m.txid = hex(32);
+  save((s) => { const a = s.accounts.find((x) => x.id === id); a.bal -= amount + WITHDRAW_FEE;
+    feed(s, id, `Withdrawal sent: ${taz(amount)} to ${to} · tx ${m.txid.slice(0, 12)}… (simulated)`); });
+  m.phase = "confirm"; show();
+  await wait(2200);
+  m.block = TIP + 1; m.phase = "done";
+  save((s) => feed(s, id, `Withdrawal confirmed in block ${m.block}`, "withdrawn"));
+  beep("coin"); show();
+}
+
 function renderModal() {
   if (!modal) return $("#scrim").classList.remove("open");
-  $("#modal").innerHTML = { connect: connectModal, list: listModal, buy: buyModal, deposit: depositModal }[modal.name]();
+  $("#modal").innerHTML = { connect: connectModal, list: listModal, buy: buyModal, deposit: depositModal, withdraw: withdrawModal }[modal.name]();
   hydrate($("#modal"));
   $("#scrim").classList.add("open");
 }
@@ -622,10 +676,11 @@ document.addEventListener("click", (e) => {
   if (d === "retry") { running.clear(); return save((s) => { if (s.sale) { delete s.sale.error; s.sale.driver = TAB; if (s.sale.stage === "verified" || s.sale.stage === "disclosed") s.sale.stage = "disclosed"; } }); }
   if (d === "deposit") {
     const m = modal, amount = Number($("#damt").value), id = me().id;
-    m.phase = "wait"; m.amount = amount; renderModal();
-    return wait(2200).then(() => { m.phase = "done"; save((s) => { s.accounts.find((a) => a.id === id).bal += amount; feed(s, id, `Deposited ${taz(amount)} (simulated)`); }); beep("coin"); });
+    m.phase = "wait"; m.amount = amount; m.txid = hex(32); renderModal();
+    return wait(2200).then(() => { m.phase = "done"; m.block = TIP + 1; save((s) => { s.accounts.find((a) => a.id === id).bal += amount; feed(s, id, `Deposited ${taz(amount)} · tx ${m.txid.slice(0, 12)}… (simulated)`); }); beep("coin"); });
   }
-  if (d === "sweep") return save((s) => { const a = s.accounts.find((x) => x.id === me().id); feed(s, a.id, `Withdrew ${taz(a.bal)} to your wallet (simulated)`); a.bal = 0; });
+  if (d === "withdraw") return doWithdraw();
+  if (d === "wmax") { const v = Math.max(0, me().bal - WITHDRAW_FEE); $("#wamt").value = v / 1e8; $("#wtot").textContent = taz(v + WITHDRAW_FEE); return; }
   if (t.dataset.tab) { ui.tab = t.dataset.tab; return render(); }
   if (t.dataset.atab) { ui.atab = t.dataset.atab; return render(); }
 });
@@ -634,6 +689,7 @@ document.addEventListener("change", (e) => {
   if (e.target.id === "sort") { ui.sort = e.target.value; render(); }
 });
 document.addEventListener("input", (e) => {
+  if (e.target.id === "wamt") { const v = Math.round(Number(e.target.value || 0) * 1e8); $("#wtot").textContent = taz(v + WITHDRAW_FEE); }
   if (e.target.id === "lp") { const v = `${e.target.value || 0} TAZ`; $("#lp1").textContent = v; $("#lp2").textContent = v; }
 });
 $("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim") closeModal(); });
