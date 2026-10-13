@@ -89,6 +89,12 @@ await b.locator('[data-do="reserve"]').click();
 await b.locator('#modal [data-open="deposit"]').waitFor({ timeout: 90000 });
 check((await b.locator('#modal .steps').textContent()).includes('HELD'), 'buyer verified the item from chain (HELD) before paying');
 await b.screenshot({ path: `${OUT}/2-verified-needs-funds.png` });
+// Reload in the middle of the purchase (what a real person does): it must pick up where it stopped.
+await b.reload();
+await b.locator('[data-open="buy"]', { hasText: 'CONTINUE PURCHASE' }).waitFor({ timeout: 5000 });
+check((await b.locator('.panel .meta').first().textContent()).includes('step 2 of 3'), 'after a reload the item page says step 2 of 3, waiting for deposit');
+check(await b.locator('[data-open="buy"]', { hasText: 'SHOW PROGRESS' }).count() === 0, 'no SHOW PROGRESS button');
+await b.locator('[data-open="buy"]').click();
 await b.locator('#modal [data-open="deposit"]').click();
 await b.locator('[data-do="deposit"]').click();
 await b.locator('.success-line').waitFor({ timeout: 10000 });

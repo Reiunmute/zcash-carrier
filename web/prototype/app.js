@@ -44,16 +44,36 @@ const COLLECTIONS = [
 const SEALED = COLLECTIONS[0].coll;
 const FEE = 15000; // network fee for a 3-Action sale, paid by the buyer
 
+const SALE_STEPS = [
+  ["reserved", "Reserve", "Your intent and a 30-minute lease on this listing"],
+  ["disclosed", "Seller's disclosure", "Vault key and carrier location, signed and encrypted to you"],
+  ["verified", "Verify from chain", "R1 to R3 in this browser before you pay"],
+  ["deposited", "Funds ready", "Price and network fee in your collectibles account"],
+  ["proving", "Build and prove", "3 Actions, proved in this browser"],
+  ["offer", "Send the offer", "Signed by you, encrypted to the seller"],
+  ["accepted", "Seller signs and broadcasts", "Price, expiry and carrier checked; the seller signs last"],
+  ["confirmed", "Confirmed", "Item and payment moved in one transaction"],
+];
+const ORDER = SALE_STEPS.map(([k]) => k);
+
 // ---------- shared market state (localStorage: every tab of this browser sees the same market) ----------
 // The active wallet account is per tab (sessionStorage), so two windows can be two different people.
 const STORE = "zarrier-market-v2", ACTIVE = "zarrier-active-account";
-const TAB = Math.random().toString(36).slice(2); // the tab that reserved drives the sale
+// The tab that drives a purchase. Kept in sessionStorage so a reload keeps driving it.
+const TAB = sessionStorage.getItem("zarrier-tab") || Math.random().toString(36).slice(2);
+sessionStorage.setItem("zarrier-tab", TAB);
+const LEASE_MS = 30 * 60 * 1000; // a reservation lapses after 30 minutes
 const newAccount = (n) => ({ id: `p${n}`, n, addr: `utest1${hex(3)}…${hex(2)}`, bal: 0 });
 function fresh() {
   const p1 = { id: "p1", n: 1, addr: "utest1qz7…a7c2", bal: 0 }, p2 = { id: "p2", n: 2, addr: "utest1xk4…k3f9", bal: 0 };
   return { accounts: [p1, p2], held: { p1: [`${SEALED}/1`, `${SEALED}/2`], p2: [] }, listings: {}, sale: null, check: {}, feed: [] };
 }
-const load = () => { try { return JSON.parse(localStorage.getItem(STORE)) || fresh(); } catch { return fresh(); } };
+const load = () => {
+  let s;
+  try { s = JSON.parse(localStorage.getItem(STORE)) || fresh(); } catch { s = fresh(); }
+  if (s.sale && s.sale.stage !== "confirmed" && ORDER.indexOf(s.sale.stage) < ORDER.indexOf("offer") && Date.now() - (s.sale.at || 0) > LEASE_MS) s.sale = null;
+  return s;
+};
 let S = load();
 function save(mut) { S = load(); mut(S); localStorage.setItem(STORE, JSON.stringify(S)); changed(); }
 function feed(s, who, text, kind = "") { s.feed.push({ who, text, kind, at: Date.now() }); }
@@ -268,17 +288,6 @@ function collection(c, tab, listedOnly, sort) {
     ${body}</div>`;
 }
 
-const SALE_STEPS = [
-  ["reserved", "Reserve", "Your intent and a 30-minute lease on this listing"],
-  ["disclosed", "Seller's disclosure", "Vault key and carrier location, signed and encrypted to you"],
-  ["verified", "Verify from chain", "R1 to R3 in this browser before you pay"],
-  ["deposited", "Funds ready", "Price and network fee in your collectibles account"],
-  ["proving", "Build and prove", "3 Actions, proved in this browser"],
-  ["offer", "Send the offer", "Signed by you, encrypted to the seller"],
-  ["accepted", "Seller signs and broadcasts", "Price, expiry and carrier checked; the seller signs last"],
-  ["confirmed", "Confirmed", "Item and payment moved in one transaction"],
-];
-const ORDER = SALE_STEPS.map(([k]) => k);
 const reached = (stage, s) => s && ORDER.indexOf(s.stage) >= ORDER.indexOf(stage);
 
 function provenance(c, it, v) {
@@ -305,7 +314,13 @@ function item(c, it) {
   else if (own) action = `<div class="in"><p class="meta">You hold this item</p>
       ${l ? `<div class="price-big">${taz(l.price)}</div><p class="mute">On sale, ends in ${left(l.expiry)} (block ${l.expiry})</p><button class="btn block" data-do="unlist">CANCEL LISTING</button>`
           : `<button class="btn primary block" data-open="list">▶ LIST FOR SALE</button>`}</div>`;
-  else if (buying) action = `<div class="in"><p class="meta">Your purchase</p><div class="price-big">${taz(s.price)}</div><button class="btn primary block" data-open="buy">SHOW PROGRESS</button></div>`;
+  else if (buying) {
+    const step = ORDER.indexOf(s.stage) < ORDER.indexOf("verified") ? 1 : ORDER.indexOf(s.stage) < ORDER.indexOf("offer") ? 2 : 3;
+    const why = s.error ? "stopped, try again" : s.stage === "verified" && u.bal < s.price + FEE ? "waiting for your deposit" : step === 3 ? "waiting for the seller" : "in progress";
+    action = `<div class="in"><p class="meta">You reserved this item · step ${step} of 3 · ${why}</p><div class="price-big">${taz(s.price)}</div>
+      <button class="btn primary block" data-open="buy">▶ CONTINUE PURCHASE</button>
+      ${step < 3 ? `<button class="btn block" data-do="cancelbuy">CANCEL</button>` : ""}</div>`;
+  }
   else if (s) action = `<div class="in"><p class="meta">Reserved</p><p class="mute">Another player holds the lease on this listing. It reopens if they do not finish.</p></div>`;
   else if (l) action = `<div class="in"><p class="meta">Price</p><div class="price-big">${taz(l.price)}</div>
       <p class="mute">${zats(l.price)} · testnet, no value · ends in ${left(l.expiry)} (block ${l.expiry})</p>
@@ -437,6 +452,7 @@ function buyModal() {
     ${!s ? `<p class="mute" style="font-size:14px">Either the whole sale happens or your funds stay yours.</p>
       ${u ? `<button class="btn primary block" data-do="reserve">▶ BUY FOR ${taz(price)}</button>` : `<button class="btn primary block" data-open="connect">▶ CONNECT WALLET TO BUY</button>`}` : ""}
     ${s?.error ? `<div class="notice">${esc(s.error)}</div><button class="btn primary block" data-do="retry">▶ TRY AGAIN</button>` : ""}
+    ${s && idx < ORDER.indexOf("offer") ? `<button class="btn block" data-do="cancelbuy">CANCEL PURCHASE</button>` : ""}
   </div>`;
 }
 
@@ -452,6 +468,7 @@ function openModal(name) {
   const c = findColl(a || ""), it = c && c.items.find((x) => x.num === +b);
   if (modal && (name === "deposit" || name === "connect")) back = modal;
   modal = { name, c, it, phase: "form", price: 10000, seed: hex(8) };
+  if (name === "buy") takeOver();
   renderModal();
   $("#modal").querySelector("button:not(.x), input, select")?.focus();
 }
@@ -484,11 +501,18 @@ function doReserve() {
   const m = modal, u = me(), l = listing(m.c, m.it);
   if (!u || !l || (S.sale && S.sale.stage !== "confirmed")) return;
   if (l.by === u.id) return;
-  save((s) => { s.sale = { key: keyOf(m.c, m.it), price: l.price, stage: "reserved", buyer: u.id, seller: l.by, driver: TAB };
+  save((s) => { s.sale = { key: keyOf(m.c, m.it), price: l.price, stage: "reserved", buyer: u.id, seller: l.by, driver: TAB, at: Date.now() };
     feed(s, u.id, `Reserved ${m.c.label} #${m.it.num}`); feed(s, l.by, `A buyer reserved ${m.c.label} #${m.it.num}`); });
   beep("click");
 }
 
+// A reload or another tab of the buyer picks the purchase up where it stopped.
+function takeOver() {
+  const s = S.sale, u = me();
+  if (!s || s.stage === "confirmed" || !u || s.buyer !== u.id || s.driver === TAB) return;
+  running.clear();
+  save((x) => { x.sale.driver = TAB; delete x.sale.error; });
+}
 // The sale moves on its own: the buyer's browser verifies, proves and offers; the seller's side
 // (its Zarrier session) discloses and accepts. In this demo one browser plays both.
 const running = new Set();
@@ -593,6 +617,8 @@ document.addEventListener("click", (e) => {
   if (d === "relist") { modal.phase = "form"; renderModal(); return; }
   if (d === "unlist") { const [, , a, b] = location.hash.split("/"); return save((s) => { delete s.listings[`${findColl(a).coll}/${b}`]; feed(s, me().id, "Listing cancelled"); }); }
   if (d === "reserve") return doReserve();
+  if (d === "cancelbuy") { if (modal) { modal = null; back = null; renderModal(); }
+    return save((s) => { if (s.sale && s.sale.buyer === me()?.id && ORDER.indexOf(s.sale.stage) < ORDER.indexOf("offer")) { feed(s, s.sale.buyer, "Purchase cancelled; nothing was paid"); feed(s, s.sale.seller, "The buyer released the reservation"); s.sale = null; } }); }
   if (d === "retry") { running.clear(); return save((s) => { if (s.sale) { delete s.sale.error; s.sale.driver = TAB; if (s.sale.stage === "verified" || s.sale.stage === "disclosed") s.sale.stage = "disclosed"; } }); }
   if (d === "deposit") {
     const m = modal, amount = Number($("#damt").value), id = me().id;
