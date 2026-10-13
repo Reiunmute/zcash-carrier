@@ -114,7 +114,7 @@ What Zarrier has that the others do not:
 - **Mined testnet transactions for every step**, including the sale between two separately held wallets.
 - **A sealed supply** and **a verifier that runs in the browser**.
 
-Our notes on ZecBit's design: [`docs/research/zecbit-whitepaper.md`](docs/research/zecbit-whitepaper.md).
+The ZecBit column describes their whitepaper. Since then ZecBit also runs a live market with real ZEC volume (zecbit.net, zecmarket.io, checked 2026-10-12); from its public pages we could not tell where ownership is recorded. Our notes on ZecBit: [`docs/research/zecbit-whitepaper.md`](docs/research/zecbit-whitepaper.md).
 
 ## Security model and known limits
 

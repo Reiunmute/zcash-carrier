@@ -1,6 +1,8 @@
 # HANDOFF: state, decisions, next tasks
 
 Written 2026-09-30 by Rei (Hermes agent) for the next coding agent, expected to be Claude Code.
+
+> 2026-10-12: submitted to the Colosseum Crypto World's Fair hackathon (Zcash track) as **Zarrier**. The repo is public. Live demo: https://zarrier.vercel.app (holder checks real, wallet and money simulated). Next phase: a real browser wallet that buys and sells on testnet (SPEC draft 4, prerequisites P8, P10, P11 still partly open).
 Owner: Ryot (Ryan). Treat every claim below as a hypothesis until you re-check it. `bash verify.sh` re-checks the testnet claims in seconds.
 
 ## 0. First 10 minutes
@@ -30,7 +32,7 @@ zkSNARKs (the Zcash collection traded on Zilkroad) keeps ownership in the operat
 
 The end product is an OpenSea-style public website where people connect a wallet, see their items, and buy and sell them.
 
-Naming: these are not NFTs in the ERC-721 sense. The product (the website and marketplace) is called **zypher** for now (Ryot, 2026-10-03, tentative). "Carrier" stays the name of the protocol and its parts: carrier notes, the `carrier` CLI, the crates. Do not rename code. Docs written before 2026-10-03 use "Carrier" for both. (Earlier candidates: Heirloom, Relic, Noteprint, Veil. Vizor is an existing wallet by Chainapsis, not a candidate.)
+Naming: these are not NFTs in the ERC-721 sense. The product (the website and marketplace) is called **Zarrier** (Ryot, 2026-10-12; "zypher" was the tentative name from 2026-10-03). "Carrier" stays the name of the protocol and its parts: carrier notes, the `carrier` CLI, the crates. Do not rename code. Docs written before 2026-10-03 use "Carrier" for both, and docs from 2026-10-03 to 2026-10-11 say "zypher". (Earlier candidates: Heirloom, Relic, Noteprint, Veil. Vizor is an existing wallet by Chainapsis, not a candidate.)
 
 ## 2. Status matrix
 
@@ -58,7 +60,7 @@ Naming: these are not NFTs in the ERC-721 sense. The product (the website and ma
 | Browser feasibility (sign, prove, network) | measured 2026-09-30 | `research/stage1-checks/RESULTS.md` |
 | Marketplace SPEC | draft 4 (draft 3 + X1 to X8), **approved by Ryot 2026-10-02**, default decisions D2 to D8 (section 10). Build follows prerequisites P4 to P12 | `docs/marketplace/SPEC.md` |
 | Web app | design direction from Ryot 2026-10-02 (D6): OpenSea's structure, our own colors and type. Static prototype of every SPEC 7 page and modal, mock data, art drawn from the memo bytes. Since 2026-10-04 the item page's "Check on chain" runs the real verifier in the browser (wasm, grpc-web from ChainSafe). Since 2026-10-12 it is one marketplace site with wallet accounts, deposits, listing and buying (arcade look); its holder checks are real, the money and proving steps simulated | `docs/marketplace/DESIGN.md`, `web/prototype/`, `scripts/build_web.sh` |
-| GitHub | `Reiunmute/zcash-carrier`, **private** | `git remote -v` |
+| GitHub | `Reiunmute/zcash-carrier`, **public since 2026-10-12** | `git remote -v` |
 
 ## 3. Decisions already made (do not reopen without new evidence)
 

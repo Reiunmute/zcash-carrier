@@ -11,9 +11,18 @@ Related: their public repo `Zecbit-nft/nscv` (2026-09-20) implements the formats
 - ZecBit's main product is a ZSA-based NFT marketplace. ZSA runs only on a dedicated QEDIT-fork testnet. It has no mainnet date, the next upgrade excludes transaction-format changes, and ZIP 228 (asset swaps) is a draft with no reference implementation (p.34-35, 115, 121, 355, 379).
 - Their testnet trading is custodial escrow: the venue takes deposits and sends two separate transactions, and atomicity is a database property (p.116-118). The hosted beta wallet holds one master seed behind an HSM (p.97-99).
 - Their only on-chain evidence is one issuance transaction of 10 assets at height 251 on the ZSA testnet (p.49). No transfer or trade txid is given.
-- Part VIII describes a mainnet-today construction (nullifier-sealed client-side validation) that is **the same core idea as Carrier**: one note per item, spend and successor in the same Action, `rho = nf`, one account per item, per-hop full viewing keys (p.184-187, 217, 236). They date its identification to September 2026 (p.380). They show no deployment of it.
+- Part VIII describes a mainnet-today construction (nullifier-sealed client-side validation) built on the same primitive as Carrier, and published before our first commit (theirs 2026-09-20, ours 2026-09-29): one note per item, spend and successor in the same Action, `rho = nf`, one account per item, per-hop full viewing keys (p.184-187, 217, 236). They date its identification to September 2026 (p.380). They show no deployment of it.
 - Their mainnet plan for that construction is a **custodial** venue: the venue holds buyer funds between payment and delivery and takes a percentage of seller proceeds (p.246, 404-412).
-- They treat two-party co-construction of one transaction as their top open question (Appendix D.1, p.312) and their "one unverified critical claim" (p.431). Carrier answered it on testnet on 2026-09-30, with both parties' keys derived from one local test seed and separated in code. A run with separate seeds is pending.
+- They treat two-party co-construction of one transaction as their top open question (Appendix D.1, p.312) and their "one unverified critical claim" (p.431). Carrier answered it on testnet on 2026-09-30, with both parties' keys derived from one local test seed and separated in code, and again on 2026-10-02 between separately held seeds (tx `281788d78f3e…`).
+
+## 1a. Update 2026-10-12: ZecBit's live sites
+
+Checked on 2026-10-12 around 21:45 CDT, from the public pages only (`zecbit.net`, `zecmarket.io`, `zecpunks.net`). Every figure is theirs and unverified by us.
+- A live market is running. `zecmarket.io` showed 4,888 items in 3 collections, 281.46 ZEC of volume for the Genesis collection and 287.06 ZEC in 24 hours, and accepts ETH, SOL or USDC ("We spin up a shielded vault for you").
+- Their FAQ says each item's metadata hash is committed on chain before sale, purchases settle in shielded ZEC, and calls ZecBit "the first private NFT marketplace built on Zcash", built on ZSA.
+- We could not tell from these pages where ownership is recorded or who controls the vaults, and whether the "ZSA block" height they show is mainnet or the ZSA testnet. We have not seen a trustless atomic sale from them.
+
+Our position does not change: the difference is settlement (one atomic transaction, no custody) plus a working implementation, not the primitive.
 
 ## 2. The co-construction question, and our answer
 
