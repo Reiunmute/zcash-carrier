@@ -225,7 +225,7 @@ function explore() {
         <h1>COLLECTIBLES THAT LIVE INSIDE SHIELDED NOTES.</h1>
         <p class="lead">Every item is a private Zcash note. Buy it and the item and the payment move in one transaction. Your browser checks the item against the chain before you pay.</p>
         <div class="cta"><a class="btn primary big" href="#/collection/${SEALED}">▶ EXPLORE COLLECTIONS</a>
-          ${me() ? "" : `<button class="btn ghost big" data-open="connect">INSERT COIN</button>`}</div>
+          ${me() ? "" : `<button class="btn ghost big" data-open="connect">CONNECT WALLET</button>`}</div>
       </div>
       <div class="formation" aria-hidden="true">
         <div class="row">${art(0, "")}${art(1, "")}${art(0, "")}</div>
@@ -251,7 +251,7 @@ function explore() {
               <div><dt class="meta">Listed</dt><dd>${n}</dd></div></dl></div></a>`;
       }).join("")}</div></div></section>
     <section class="section how"><div class="wrap"><h2>HOW TO PLAY</h2><ol class="howto">
-      <li><b>1</b><span>Insert coin: connect a wallet account.</span></li>
+      <li><b>1</b><span>Connect wallet: pick a wallet account.</span></li>
       <li><b>2</b><span>Deposit test TAZ to your collectibles account.</span></li>
       <li><b>3</b><span>Buy an item. Your browser verifies it from chain first.</span></li>
       <li><b>4</b><span>Or list one you hold. Item and payment swap in one transaction.</span></li></ol></div></section>`;
@@ -348,7 +348,7 @@ function item(c, it) {
 
 function account(tab) {
   const u = me();
-  if (!u) return `<div class="wrap"><section class="gate"><h1>INSERT COIN</h1><p class="lead">Connect a wallet account to see your items, deposit and sell.</p>
+  if (!u) return `<div class="wrap"><section class="gate"><h1>CONNECT WALLET</h1><p class="lead">Connect a wallet account to see your items, deposit and sell.</p>
       <button class="btn primary big" data-open="connect"><span class="blink">▶</span> CONNECT WALLET</button></section></div>`;
   const held = [];
   for (const c of COLLECTIONS) for (const it of c.items) if (mine(c, it)) held.push([c, it]);
@@ -631,7 +631,7 @@ function render() {
   const app = $("#app"), u = me();
   document.querySelectorAll("[data-nav]").forEach((n) => n.removeAttribute("aria-current"));
   const conn = $("#connect");
-  conn.innerHTML = u ? `<span class="pn">${pname(u)}</span> <span class="ad">${esc(u.addr)}</span>` : "INSERT COIN";
+  conn.innerHTML = u ? `<span class="pn">${pname(u)}</span> <span class="ad">${esc(u.addr)}</span>` : "CONNECT WALLET";
   conn.classList.toggle("on", !!u);
   $("#hud-bal").hidden = !u;
   $("#hud-dep").hidden = !u;
