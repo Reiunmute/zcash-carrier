@@ -510,9 +510,14 @@ async function doWithdraw() {
   beep("coin"); show();
 }
 
+let lastModalHtml = "";
 function renderModal() {
-  if (!modal) return $("#scrim").classList.remove("open");
-  $("#modal").innerHTML = { connect: connectModal, list: listModal, buy: buyModal, deposit: depositModal, withdraw: withdrawModal }[modal.name]();
+  if (!modal) { lastModalHtml = ""; return $("#scrim").classList.remove("open"); }
+  const html = { connect: connectModal, list: listModal, buy: buyModal, deposit: depositModal, withdraw: withdrawModal }[modal.name]();
+  // Re-render only when the dialog changed, so a click is never lost to a redraw.
+  if (html === lastModalHtml && $("#scrim").classList.contains("open")) return;
+  lastModalHtml = html;
+  $("#modal").innerHTML = html;
   hydrate($("#modal"));
   $("#scrim").classList.add("open");
 }
