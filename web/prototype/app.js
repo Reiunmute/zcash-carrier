@@ -201,7 +201,7 @@ function explore() {
         <p class="kicker">ZCASH TESTNET · SHIELDED POOL</p>
         <h1>COLLECTIBLES THAT LIVE INSIDE SHIELDED NOTES.</h1>
         <p class="lead">Every item is a private Zcash note. Buy it and the item and the payment move in one transaction. Your browser checks the item against the chain before you pay.</p>
-        <div class="cta"><a class="btn primary big" href="#/collection/${SEALED}"><span class="blink">▶</span> PRESS START</a>
+        <div class="cta"><a class="btn primary big" href="#/collection/${SEALED}">▶ EXPLORE COLLECTIONS</a>
           ${me() ? "" : `<button class="btn ghost big" data-open="connect">INSERT COIN</button>`}</div>
       </div>
       <div class="formation" aria-hidden="true">
@@ -403,25 +403,39 @@ function listModal() {
     ${m.phase === "done" ? `<button class="btn primary block" data-close>DONE</button>` : m.phase === "failed" ? `<div class="notice">${esc(m.error)}</div><button class="btn primary block" data-do="relist">▶ TRY AGAIN</button><button class="btn block" data-close>CLOSE</button>` : ""}</div>`;
 }
 
+// The eight protocol stages, shown to the buyer as three steps.
+const BUY_STEPS = [
+  { title: "Check the item", sub: "Your browser verifies it on chain before you pay", from: "reserved", to: "verified" },
+  { title: "Pay", sub: "Item and payment go in one transaction", from: "deposited", to: "offer" },
+  { title: "Seller confirms", sub: "The seller signs last; then it is yours", from: "accepted", to: "confirmed" },
+];
 function buyModal() {
   const m = modal, u = me(), s = S.sale?.key === keyOf(m.c, m.it) ? S.sale : null, l = listing(m.c, m.it);
   const price = s ? s.price : l ? l.price : 0, total = price + FEE;
-  const next = s ? ORDER[ORDER.indexOf(s.stage) + 1] : "reserved";
-  const cls = (k) => (reached(k, s) ? "done" : k === next ? "now" : "");
   const short_ = u && s && s.stage === "verified" && u.bal < total;
   const h = head(`BUY ${m.c.label} #${m.it.num}`);
   if (s?.stage === "confirmed") return `${h}<div class="in"><div class="success">${art(m.it.art, "")}<div><p class="meta">Stage clear</p><h2 class="got">YOU GOT IT.</h2><p class="mute">${esc(m.c.label)} #${m.it.num} is in a fresh vault of yours. One transaction moved the item and the payment (simulated: block ${s.block}).</p></div></div>
       <div class="btns" style="display:flex;gap:8px;margin-top:16px"><a class="btn primary" href="#/account" data-close>VIEW MY ITEMS</a><button class="btn" data-close>CLOSE</button></div></div>`;
-  const notes = { reserved: s ? "lease granted" : "", disclosed: reached("disclosed", s) ? "signature ok" : s ? "waiting for the seller" : "",
-    verified: s?.verifyNote || "", deposited: reached("deposited", s) ? "ready" : short_ ? `credit ${taz(u.bal)}` : "",
-    proving: s?.stage === "proving" ? `${s.pct || 0}%` : reached("offer", s) ? "done" : "", offer: reached("offer", s) ? "sent" : "",
-    accepted: reached("accepted", s) ? "broadcast" : reached("offer", s) ? "waiting" : "", confirmed: "" };
+  const idx = s ? ORDER.indexOf(s.stage) : -1;
+  const note = (i) => {
+    if (!s) return "";
+    if (i === 0) return idx >= ORDER.indexOf("verified") ? (s.verifyNote || "HELD") : s.stage === "reserved" ? "reserving" : (s.verifyNote || "checking");
+    if (i === 1) return idx >= ORDER.indexOf("offer") ? "sent" : s.stage === "proving" ? `building ${s.pct || 0}%` : s.stage === "deposited" ? "preparing" : short_ ? "deposit needed" : "";
+    return s.stage === "accepted" ? "broadcast" : s.stage === "offer" ? "waiting for the seller" : "";
+  };
+  const rows = BUY_STEPS.map((g, i) => {
+    const a = ORDER.indexOf(g.from), b = ORDER.indexOf(g.to);
+    const cls = idx >= b ? "done" : s && idx + 1 >= a ? "now" : "";
+    return [cls, g.title, g.sub, note(i)];
+  });
+  const pct = s ? Math.round(((idx + 1) / ORDER.length) * 100) : 0;
   return `${h}<div class="in">
     <div class="sum" style="border-top:0;margin-top:0;padding-top:0"><div><span>Price</span><span>${taz(price)}</span></div><div><span>Network fee</span><span>${taz(FEE)}</span></div><div class="total"><span>Total</span><span>${taz(total)}</span></div></div>
-    ${stepList(SALE_STEPS.map(([k, t, sub]) => [cls(k), t, sub, notes[k]]))}
-    ${short_ ? `<div class="notice">Your credit is ${taz(u.bal)}. Deposit at least ${taz(total - u.bal)} more to continue. The lease holds your place.</div><button class="btn primary block" data-open="deposit">▶ DEPOSIT</button>` : ""}
-    ${!s ? `<div class="notice">Until the offer expires (about 25 minutes) the seller decides whether to complete it. Either the whole sale happens or your funds stay yours.</div>
-      ${u ? `<button class="btn primary block" data-do="reserve">▶ RESERVE AND VERIFY</button>` : `<button class="btn primary block" data-open="connect">INSERT COIN FIRST</button>`}` : ""}
+    ${s ? `<div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>` : ""}
+    ${stepList(rows)}
+    ${short_ ? `<div class="notice">Your credit is ${taz(u.bal)}. Deposit ${taz(total - u.bal)} more and the purchase continues by itself.</div><button class="btn primary block" data-open="deposit">▶ DEPOSIT</button>` : ""}
+    ${!s ? `<p class="mute" style="font-size:14px">Either the whole sale happens or your funds stay yours.</p>
+      ${u ? `<button class="btn primary block" data-do="reserve">▶ BUY FOR ${taz(price)}</button>` : `<button class="btn primary block" data-open="connect">▶ CONNECT WALLET TO BUY</button>`}` : ""}
     ${s?.error ? `<div class="notice">${esc(s.error)}</div><button class="btn primary block" data-do="retry">▶ TRY AGAIN</button>` : ""}
   </div>`;
 }
@@ -542,6 +556,7 @@ function render() {
   conn.innerHTML = u ? `<span class="pn">${pname(u)}</span> <span class="ad">${esc(u.addr)}</span>` : "INSERT COIN";
   conn.classList.toggle("on", !!u);
   $("#hud-bal").hidden = !u;
+  $("#hud-dep").hidden = !u;
   if (u) $("#bal").textContent = taz(u.bal);
   document.title = `Zarrier${u ? ` · ${pname(u)}` : ""} (testnet)`;
   let html;

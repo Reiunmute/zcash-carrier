@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Zarrier: shielded collectibles on Zcash (testnet)</title>
 <link rel="icon" href="mark.svg">
-<link rel="stylesheet" href="styles.css?v=8">
+<link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
 <canvas id="stars" aria-hidden="true"></canvas>
@@ -16,6 +16,7 @@
   <span class="spacer"></span>
   <span class="hud" id="hud-tip" title="Zcash testnet block height"><span class="k">BLOCK</span><span class="v" id="tip">4,466,500</span></span>
   <span class="hud" id="hud-bal" hidden><span class="k">CREDIT</span><span class="v" id="bal">0</span></span>
+  <button class="btn hdep" id="hud-dep" data-open="deposit" hidden aria-label="Deposit"><span class="plus">+</span><span class="lbl"> DEPOSIT</span></button>
   <button class="btn coin" id="connect">INSERT COIN</button>
 </div></header>
 <main id="app"></main>
@@ -28,7 +29,7 @@
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <div class="banner" id="banner" aria-live="assertive"></div>
 <canvas id="burst" aria-hidden="true"></canvas>
-<script src="app.js?v=8"></script>
-<script type="module" src="verify.mjs?v=8"></script>
+<script src="app.js?v=9"></script>
+<script type="module" src="verify.mjs?v=9"></script>
 </body>
 </html>

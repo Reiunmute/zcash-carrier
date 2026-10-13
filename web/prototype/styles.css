@@ -19,6 +19,7 @@
   --max: 1320px;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; background: var(--void); color: var(--paper); }
 body { font: 16px/1.65 var(--ui); min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
 main { flex: 1; position: relative; z-index: 1; }
@@ -71,6 +72,11 @@ h2::before { content: "▶ "; color: var(--red); }
 .btn.coin.on { animation: none; color: var(--paper); border-color: var(--paper); font-size: 10px; }
 .btn.coin .ad { color: var(--ash); font-family: var(--ui); font-size: 12px; text-transform: none; }
 .btn.coin .pn { color: var(--y); }
+.btn.hdep { height: 40px; padding: 0 12px; border-color: var(--y); background: var(--y); color: var(--ink); box-shadow: 3px 3px 0 0 #8a6510; font-size: 10px; }
+.btn.hdep:hover { background: var(--paper); border-color: var(--paper); color: var(--ink); }
+.btn.hdep .plus { font-size: 14px; }
+.bar { height: 14px; border: 2px solid var(--paper); padding: 2px; margin: 14px 0 4px; }
+.bar i { display: block; height: 100%; background: repeating-linear-gradient(90deg, var(--y) 0 8px, transparent 8px 10px); transition: width 300ms steps(4); }
 .link { background: none; border: 0; padding: 0; color: var(--y); cursor: pointer; font-family: var(--px); font-size: 9px; }
 .blink { animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
@@ -251,6 +257,7 @@ select:focus, input:focus { border-color: var(--y); }
   .media { position: static; }
   .howto { grid-template-columns: 1fr 1fr; }
   #hud-tip { display: none; }
+  .btn.coin .ad { display: none; }
 }
 @media (max-width: 640px) {
   :root { --gutter: 14px; }
@@ -260,6 +267,8 @@ select:focus, input:focus { border-color: var(--y); }
   .nav a[aria-current="page"]::before { content: none; }
   .btn.coin { height: 38px; padding: 0 10px; font-size: 9px; }
   .btn.coin .ad, #hud-bal { display: none; }
+  .btn.hdep { height: 38px; padding: 0 10px; }
+  .btn.hdep .lbl { display: none; }
   .hero { padding: 40px 0 24px; }
   .score .wrap { grid-template-columns: 1fr 1fr; }
   .browse { grid-template-columns: 1fr; }

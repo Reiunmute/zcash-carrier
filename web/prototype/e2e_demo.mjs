@@ -84,6 +84,7 @@ await b.locator('[data-open="buy"]').click();
 await b.locator('#modal [data-open="connect"]').click();
 await b.locator('[data-pick="p2"]').click();
 check(await b.locator('#modal [data-do="reserve"]').count() === 1, 'connecting returns to the purchase');
+check(await b.locator('#modal .steps li').count() === 3, 'the purchase shows three steps');
 await b.locator('[data-do="reserve"]').click();
 await b.locator('#modal [data-open="deposit"]').waitFor({ timeout: 90000 });
 check((await b.locator('#modal .steps').textContent()).includes('HELD'), 'buyer verified the item from chain (HELD) before paying');
@@ -108,6 +109,11 @@ check((await a.locator('.price-big').first().textContent()).trim() === '0.0001 T
 check(await a.locator('.card', { hasText: '#1' }).count() === 0 && await a.locator('.card', { hasText: '#2' }).count() === 1, 'seller keeps #2 only');
 await a.screenshot({ path: `${OUT}/5-seller-after.png` });
 
+// The header deposit button works from any page.
+check(await a.locator('#hud-dep').isVisible(), 'deposit button sits in the header');
+await a.locator('#hud-dep').click();
+check(await a.locator('#modal [data-do="deposit"]').count() === 1, 'header deposit opens the deposit dialog');
+await a.locator('#modal .x').click();
 // One tab can switch between players too.
 await a.locator('#connect').click();
 await a.locator('[data-pick="p2"]').click();
