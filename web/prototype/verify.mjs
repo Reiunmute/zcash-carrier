@@ -3,8 +3,17 @@
 import init, { BrowserChain } from './pkg/carrier_wasm.js';
 import * as lwd from './lib/lwd.mjs';
 
-export const SERVER = 'https://zcash-testnet.chainsafe.dev';
-let ready;
+export const PUBLIC = 'https://zcash-testnet.chainsafe.dev';
+let ready, server;
+// Prefer the local relay (scripts/serve_web.py, the demo launcher) when the page is served by it;
+// otherwise talk to the public server directly. Either way the verifier checks every byte.
+async function pickServer() {
+  try {
+    const r = await fetch('/lwd/ping', { cache: 'no-store' });
+    if (r.status === 204) return `${location.origin}/lwd`;
+  } catch {}
+  return PUBLIC;
+}
 
 // { collection, item, pkg?, walk?, holder?, from } -> verdict object from BrowserChain.verify
 async function verifyFromChain({ collection, item, pkg = null, walk = null, holder = null, from }, progress = () => {}) {
@@ -12,8 +21,10 @@ async function verifyFromChain({ collection, item, pkg = null, walk = null, hold
   ready ||= init().catch((e) => { ready = null; throw new Error(`verifier did not load: ${e.message || e}`); });
   await ready;
   const t0 = performance.now();
+  server ||= await pickServer();
+  const SERVER = server;
   progress('asking the chain for its tip');
-  const tip = await lwd.latestHeight(SERVER).catch((e) => { throw new Error(`chain server unreachable (${SERVER}): ${e.message || e}`); });
+  const tip = await lwd.latestHeight(SERVER).catch((e) => { server = null; throw new Error(`chain server unreachable (${SERVER}): ${e.message || e}`); });
   const chain = new BrowserChain((txid) => lwd.getTransaction(SERVER, txid));
   let n = 0;
   for await (const b of lwd.blockRange(SERVER, from, tip)) {
