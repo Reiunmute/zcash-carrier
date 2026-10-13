@@ -58,6 +58,10 @@ await a.goto(`${BASE}/index.html#/`);
 await a.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
 await a.reload();
 await a.screenshot({ path: `${OUT}/0-home.png` });
+await a.waitForFunction(() => /^[0-9,]+$/.test(document.querySelector('#tip').textContent), null, { timeout: 20000 });
+const shown = Number((await a.locator('#tip').textContent()).replace(/,/g, ''));
+const live = await a.evaluate(() => window.zarrierTip());
+check(Math.abs(shown - live) <= 2 && shown > 4490000, `header shows the live testnet height (${shown} vs ${live})`);
 
 // Player 1 connects and lists Masks, sealed #1.
 await a.locator('#connect').click();

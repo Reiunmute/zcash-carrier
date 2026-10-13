@@ -45,5 +45,12 @@ async function verifyFromChain({ collection, item, pkg = null, walk = null, hold
   return r;
 }
 
+// The live testnet tip, for the header.
+async function tip() {
+  server ||= await pickServer();
+  return lwd.latestHeight(server).catch((e) => { server = null; throw e; });
+}
+
 window.zarrierVerify = verifyFromChain;
+window.zarrierTip = tip;
 window.dispatchEvent(new Event('zarrier-verify-ready'));
