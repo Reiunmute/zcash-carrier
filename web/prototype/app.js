@@ -105,8 +105,21 @@ async function chainCheck(c, it, progress) {
     item: it.num, pkg: null, walk: it.chain.walk, holder: it.chain.holder, from: c.genesisH,
   }, progress);
 }
+// Errors go to the screen and, as a request line, to the local server's log (no data beyond the message).
+function report(where, e) {
+  const msg = `${where}: ${e && (e.message || e)}`.slice(0, 300);
+  fetch(`/__client_error?${encodeURIComponent(msg)}&ua=${encodeURIComponent(navigator.userAgent)}`).catch(() => {});
+  return msg;
+}
+window.addEventListener("error", (e) => report("page", e.message));
+window.addEventListener("unhandledrejection", (e) => report("promise", e.reason));
+const timeout = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what} took over ${ms / 1000} s`)), ms))]);
 async function holdsIt(c, it, progress) {
-  if (it.chain) return chainCheck(c, it, progress);
+  if (it.chain) {
+    progress("starting the check");
+    if (!window.zarrierVerify) await timeout(new Promise((r) => window.addEventListener("zarrier-verify-ready", r, { once: true })), 20000, "loading verify.mjs");
+    return timeout(chainCheck(c, it, progress), 120000, "the chain check");
+  }
   await wait(1400);
   return { verdict: "HELD", hop: it.hop, items: c.items.length, sealed: c.sealed, simulated: true };
 }
@@ -383,11 +396,11 @@ function listModal() {
   const pub = m.public ? `<p class="meta">Public listing: these six fields are all the order book sees</p><pre class="json">${esc(JSON.stringify(m.public, null, 2))}</pre>` : "";
   return `${head(`LIST ${name}`)}<div class="in">
     ${stepList([
-      [m.phase === "check" ? "now" : "done", "Check that you hold it", "R1 to R3 from chain, in this browser", m.checkNote || ""],
+      [m.phase === "check" ? "now" : m.phase === "failed" ? "" : "done", "Check that you hold it", "R1 to R3 from chain, in this browser", m.checkNote || ""],
       [m.phase === "publish" ? "now" : m.phase === "done" ? "done" : "", "Publish the listing", "Only six fields go to the order book"],
     ])}
     ${pub}
-    ${m.phase === "done" ? `<button class="btn primary block" data-close>DONE</button>` : m.phase === "failed" ? `<p class="mute">${esc(m.error)}</p><button class="btn block" data-close>CLOSE</button>` : ""}</div>`;
+    ${m.phase === "done" ? `<button class="btn primary block" data-close>DONE</button>` : m.phase === "failed" ? `<div class="notice">${esc(m.error)}</div><button class="btn primary block" data-do="relist">▶ TRY AGAIN</button><button class="btn block" data-close>CLOSE</button>` : ""}</div>`;
 }
 
 function buyModal() {
@@ -409,7 +422,7 @@ function buyModal() {
     ${short_ ? `<div class="notice">Your credit is ${taz(u.bal)}. Deposit at least ${taz(total - u.bal)} more to continue. The lease holds your place.</div><button class="btn primary block" data-open="deposit">▶ DEPOSIT</button>` : ""}
     ${!s ? `<div class="notice">Until the offer expires (about 25 minutes) the seller decides whether to complete it. Either the whole sale happens or your funds stay yours.</div>
       ${u ? `<button class="btn primary block" data-do="reserve">▶ RESERVE AND VERIFY</button>` : `<button class="btn primary block" data-open="connect">INSERT COIN FIRST</button>`}` : ""}
-    ${s?.error ? `<p class="mute">${esc(s.error)}</p>` : ""}
+    ${s?.error ? `<div class="notice">${esc(s.error)}</div><button class="btn primary block" data-do="retry">▶ TRY AGAIN</button>` : ""}
   </div>`;
 }
 
@@ -438,7 +451,9 @@ async function doList() {
   const m = modal, u = me(), price = Math.round(Number($("#lp").value) * 1e8), ttl = Number($("#lttl").value);
   if (!(price > 0) || !u) return;
   m.price = price; m.phase = "check"; renderModal();
-  const r = await holdsIt(m.c, m.it, (msg) => { m.checkNote = msg; renderModal(); });
+  let r;
+  try { r = await holdsIt(m.c, m.it, (msg) => { m.checkNote = msg; renderModal(); }); }
+  catch (e) { m.phase = "failed"; m.error = `The check could not run: ${report("list", e)}`; beep("bad"); return renderModal(); }
   if (r.verdict !== "HELD") { m.phase = "failed"; m.error = `Not listed: ${r.verdict} ${r.error || ""}`; beep("bad"); return renderModal(); }
   m.checkNote = r.simulated ? "simulated" : `HELD, ${r.blocks.toLocaleString("en-US")} blocks, ${r.seconds.toFixed(1)} s`;
   save((s) => { s.check[keyOf(m.c, m.it)] = r; });
@@ -463,7 +478,7 @@ function doReserve() {
 // The sale moves on its own: the buyer's browser verifies, proves and offers; the seller's side
 // (its Zarrier session) discloses and accepts. In this demo one browser plays both.
 const running = new Set();
-function once(tag, fn) { if (running.has(tag)) return; running.add(tag); fn().catch((e) => save((x) => { if (x.sale) x.sale.error = `Stopped: ${e.message || e}`; })); }
+function once(tag, fn) { if (running.has(tag)) return; running.add(tag); fn().catch((e) => { const msg = report("sale", e); save((x) => { if (x.sale) x.sale.error = `Stopped: ${msg}. Nothing was paid.`; }); }); }
 function automate() {
   const s = S.sale;
   if (!s || s.stage === "confirmed" || s.driver !== TAB) return;
@@ -560,8 +575,10 @@ document.addEventListener("click", (e) => {
   if (d === "newacct") return save((s) => { const n = Math.max(...s.accounts.map((a) => a.n)) + 1; const a = newAccount(n); s.accounts.push(a); s.held[a.id] = []; });
   if (d === "disconnect") { sessionStorage.removeItem(ACTIVE); modal = null; return changed(); }
   if (d === "list") return doList();
+  if (d === "relist") { modal.phase = "form"; renderModal(); return; }
   if (d === "unlist") { const [, , a, b] = location.hash.split("/"); return save((s) => { delete s.listings[`${findColl(a).coll}/${b}`]; feed(s, me().id, "Listing cancelled"); }); }
   if (d === "reserve") return doReserve();
+  if (d === "retry") { running.clear(); return save((s) => { if (s.sale) { delete s.sale.error; s.sale.driver = TAB; if (s.sale.stage === "verified" || s.sale.stage === "disclosed") s.sale.stage = "disclosed"; } }); }
   if (d === "deposit") {
     const m = modal, amount = Number($("#damt").value), id = me().id;
     m.phase = "wait"; m.amount = amount; renderModal();

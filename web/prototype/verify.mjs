@@ -8,15 +8,17 @@ let ready;
 
 // { collection, item, pkg?, walk?, holder?, from } -> verdict object from BrowserChain.verify
 async function verifyFromChain({ collection, item, pkg = null, walk = null, holder = null, from }, progress = () => {}) {
-  ready ||= init();
+  progress('loading the verifier');
+  ready ||= init().catch((e) => { ready = null; throw new Error(`verifier did not load: ${e.message || e}`); });
   await ready;
   const t0 = performance.now();
-  const tip = await lwd.latestHeight(SERVER);
+  progress('asking the chain for its tip');
+  const tip = await lwd.latestHeight(SERVER).catch((e) => { throw new Error(`chain server unreachable (${SERVER}): ${e.message || e}`); });
   const chain = new BrowserChain((txid) => lwd.getTransaction(SERVER, txid));
   let n = 0;
   for await (const b of lwd.blockRange(SERVER, from, tip)) {
     chain.add_block(b);
-    if (++n % 2500 === 0) progress(`indexed ${n.toLocaleString('en-US')} of ${(tip - from + 1).toLocaleString('en-US')} blocks`);
+    if (++n % 1000 === 0) progress(`indexed ${n.toLocaleString('en-US')} of ${(tip - from + 1).toLocaleString('en-US')} blocks`);
   }
   progress('checking the rules');
   // One server for now; with our own node (P11) min_tip becomes the higher of the two tips.
